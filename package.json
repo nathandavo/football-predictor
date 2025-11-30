@@ -1,19 +1,19 @@
 {
-  "dependencies": {
-    "axios": "^1.13.2",
-    "bcryptjs": "^3.0.3",
-    "cors": "^2.8.5",
-    "dotenv": "^17.2.3",
-    "express": "^5.1.0",
-    "jsonwebtoken": "^9.0.2",
-    "mongodb": "^7.0.0",
-    "mongoose": "^9.0.0",
-    "openai": "^6.9.1"
-  },
-  "name": "football-predictor",
+  "name": "football-predictor-backend",
   "version": "1.0.0",
-  "main": "db.js",
+  "main": "server.js",
+  "type": "commonjs",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js"
   },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.0",
+    "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^7.5.0",
+    "openai": "^4.0.0"
+  }
+}
