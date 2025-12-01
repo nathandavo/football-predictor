@@ -1,61 +1,59 @@
 const express = require("express");
-const OpenAI = require("openai");
 const router = express.Router();
+const axios = require("axios");
+const OpenAI = require("openai");
 
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-router.post("/", async (req, res) => {
-  try {
-    const { homeTeam, awayTeam } = req.body;
-
-    if (!homeTeam || !awayTeam) {
-      return res.status(400).json({ error: "homeTeam and awayTeam are required." });
+// Helper: fetch upcoming matches from API-Football
+async function getUpcomingMatches() {
+  const response = await axios.get(
+    "https://api-football-v1.p.rapidapi.com/v3/fixtures",
+    {
+      params: { league: 39, season: 2025, next: 10 }, // adjust league/season as needed
+      headers: {
+        "X-RapidAPI-Key": process.env.FOOTBALL_API_KEY,
+        "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com",
+      },
     }
+  );
+  return response.data.response;
+}
+
+// Helper: format stats for OpenAI prompt
+function formatMatchStats(match) {
+  const home = match.teams.home.name;
+  const away = match.teams.away.name;
+
+  const homeForm = match.teams.home.form || "No recent form data";
+  const awayForm = match.teams.away.form || "No recent form data";
+
+  return `Match: ${home} vs ${away}\nHome form: ${homeForm}\nAway form: ${awayForm}\n`;
+}
+
+// Prediction endpoint
+router.get("/", async (req, res) => {
+  try {
+    const matches = await getUpcomingMatches();
+    if (!matches.length) return res.json({ message: "No upcoming matches found." });
+
+    // Example: predict first upcoming match
+    const matchStats = formatMatchStats(matches[0]);
 
     const prompt = `
-      Predict the result of the upcoming Premier League match:
-      - Home team: ${homeTeam}
-      - Away team: ${awayTeam}
-
-      Give me:
-      1. Predicted scoreline (e.g., 2-1)
-      2. Likely winner
-      3. A short explanation (2 sentences)
-      
-      Respond ONLY in JSON:
-      {
-        "prediction": "2-1",
-        "winner": "Home/Away/Draw",
-        "explanation": "..."
-      }
+      Based on the following stats, predict the most likely score for the match:
+      ${matchStats}
     `;
 
     const completion = await client.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: "You predict football matches." },
-        { role: "user", content: prompt }
-      ]
+      model: "gpt-5-mini",
+      messages: [{ role: "user", content: prompt }],
     });
 
-    const text = completion.choices[0].message.content;
-
-    const jsonStart = text.indexOf("{");
-    const jsonEnd = text.lastIndexOf("}");
-    const cleanJson = text.substring(jsonStart, jsonEnd + 1);
-
-    const responseJson = JSON.parse(cleanJson);
-
-    res.json(responseJson);
-
-  } catch (error) {
-    console.error("Prediction Error:", error);
-    res.status(500).json({
-      error: "Failed to generate prediction",
-      details: error.message
-    });
+    res.json({ prediction: completion.choices[0].message.content });
+  } catch (err) {
+    console.error("Prediction error:", err);
+    res.status(500).json({ error: "Failed to get prediction." });
   }
 });
 
