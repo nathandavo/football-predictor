@@ -1,27 +1,26 @@
-const express = require('express');
+const express = require("express");
+const axios = require("axios");
 const router = express.Router();
-const axios = require('axios');
 
-router.get('/upcoming', async (req, res) => {
+router.get("/", async (req, res) => {
   try {
-    const response = await axios.get('https://api-football-v1.p.rapidapi.com/v3/fixtures', {
-      params: { season: '2025', next: 10 },
+    const response = await axios.get("https://v3.football.api-sports.io/fixtures", {
+      params: {
+        live: "all" // you can change this to date, league, etc.
+      },
       headers: {
-        'X-RapidAPI-Key': process.env.FOOTBALL_API_KEY,
-        'X-RapidAPI-Host': 'api-football-v1.p.rapidapi.com'
+        "x-rapidapi-key": process.env.FOOTBALL_API_KEY,
+        "x-rapidapi-host": "v3.football.api-sports.io"
       }
     });
 
-    const fixtures = response.data.response.map(f => ({
-      fixtureId: f.fixture.id,
-      home: f.teams.home.name,
-      away: f.teams.away.name
-    }));
-
-    res.json(fixtures);
-  } catch (err) {
-    console.log(err);
-    res.status(500).json({ error: 'Could not fetch fixtures' });
+    res.json(response.data);
+  } catch (error) {
+    console.error("Fixtures Error:", error.response?.data || error.message);
+    res.status(500).json({
+      error: "Failed to fetch fixtures",
+      details: error.response?.data || error.message
+    });
   }
 });
 
