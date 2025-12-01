@@ -2,11 +2,17 @@ const express = require("express");
 const axios = require("axios");
 const router = express.Router();
 
+// Premier League = League ID 39
+// Season = 2024
+// Next = upcoming matches
+
 router.get("/", async (req, res) => {
   try {
     const response = await axios.get("https://v3.football.api-sports.io/fixtures", {
       params: {
-        live: "all" // you can change this to date, league, etc.
+        league: 39,
+        season: 2024,
+        next: 10   // number of upcoming fixtures to return
       },
       headers: {
         "x-rapidapi-key": process.env.FOOTBALL_API_KEY,
