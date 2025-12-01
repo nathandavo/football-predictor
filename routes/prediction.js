@@ -1,65 +1,61 @@
-const express = require('express');
+const express = require("express");
+const OpenAI = require("openai");
 const router = express.Router();
-const auth = require('../middleware/auth');
-const OpenAI = require('openai');
 
-const openai = new OpenAI({
+const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-// Helper to get current Premier League gameweek (1–38)
-function getGameWeek() {
-  const seasonStart = new Date('2024-08-01'); // adjust each season
-  const today = new Date();
-  const diff = Math.floor((today - seasonStart) / (1000 * 60 * 60 * 24));
-  return Math.max(1, Math.min(38, Math.ceil(diff / 7)));
-}
-
-// ----- FREE WEEKLY PREDICTION -----
-router.post('/free', auth, async (req, res) => {
-  const { fixtureId, homeTeam, awayTeam } = req.body;
-
-  const gameweek = getGameWeek();
-
-  // Ensure the user has a freePredictions object
-  if (!req.user.freePredictions) {
-    req.user.freePredictions = {};
-  }
-
-  // Block if used already this week
-  if (req.user.freePredictions[gameweek]) {
-    return res.status(403).json({
-      error: 'You already used your free prediction this gameweek'
-    });
-  }
-
+router.post("/", async (req, res) => {
   try {
+    const { homeTeam, awayTeam } = req.body;
+
+    if (!homeTeam || !awayTeam) {
+      return res.status(400).json({ error: "homeTeam and awayTeam are required." });
+    }
+
     const prompt = `
-      Predict the Premier League match result.
-      Match: ${homeTeam} vs ${awayTeam}.
-      Include:
-      - Final score
-      - Winner
-      - Win probability %
-      - Very short reasoning
+      Predict the result of the upcoming Premier League match:
+      - Home team: ${homeTeam}
+      - Away team: ${awayTeam}
+
+      Give me:
+      1. Predicted scoreline (e.g., 2-1)
+      2. Likely winner
+      3. A short explanation (2 sentences)
+      
+      Respond ONLY in JSON:
+      {
+        "prediction": "2-1",
+        "winner": "Home/Away/Draw",
+        "explanation": "..."
+      }
     `;
 
-    const aiResponse = await openai.responses.create({
-      model: 'gpt-4.1-mini',
-      input: prompt
+    const completion = await client.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: "You predict football matches." },
+        { role: "user", content: prompt }
+      ]
     });
 
-    const prediction = aiResponse.output[0].content[0].text;
+    const text = completion.choices[0].message.content;
 
-    // Save that the user has used the free prediction
-    req.user.freePredictions[gameweek] = fixtureId;
-    await req.user.save();
+    const jsonStart = text.indexOf("{");
+    const jsonEnd = text.lastIndexOf("}");
+    const cleanJson = text.substring(jsonStart, jsonEnd + 1);
 
-    return res.json({ prediction });
+    const responseJson = JSON.parse(cleanJson);
 
-  } catch (err) {
-    console.error('OpenAI error:', err);
-    return res.status(500).json({ error: 'Prediction failed' });
+    res.json(responseJson);
+
+  } catch (error) {
+    console.error("Prediction Error:", error);
+    res.status(500).json({
+      error: "Failed to generate prediction",
+      details: error.message
+    });
   }
 });
 
