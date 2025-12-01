@@ -11,8 +11,8 @@ router.get("/", async (req, res) => {
     const response = await axios.get("https://v3.football.api-sports.io/fixtures", {
       params: {
         league: 39,
-        season: 2024,
-        next: 10   // number of upcoming fixtures to return
+        season: 2025,
+        next: 1   // number of upcoming fixtures to return
       },
       headers: {
         "x-rapidapi-key": process.env.FOOTBALL_API_KEY,
@@ -31,3 +31,4 @@ router.get("/", async (req, res) => {
 });
 
 module.exports = router;
+
