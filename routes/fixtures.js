@@ -3,7 +3,7 @@ const axios = require("axios");
 const router = express.Router();
 
 // Premier League = League ID 39
-// Season = 2024
+// Season = 2025
 // Next = upcoming matches
 
 router.get("/", async (req, res) => {
@@ -31,5 +31,6 @@ router.get("/", async (req, res) => {
 });
 
 module.exports = router;
+
 
 
