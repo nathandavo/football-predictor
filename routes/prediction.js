@@ -1,129 +1,64 @@
-const express = require("express");
+const express = require('express');
 const router = express.Router();
-const axios = require("axios");
-const OpenAI = require("openai");
+const auth = require('../middleware/auth');
+const OpenAI = require('openai');
+const User = require('../models/User');
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// ------------ Helpers ------------
-
-// Fetch upcoming fixtures
-async function getUpcomingFixtures() {
-  const response = await axios.get("https://api-football-v1.p.rapidapi.com/v3/fixtures", {
-    params: { league: 39, season: 2025, next: 10 },
-    headers: {
-      "X-RapidAPI-Key": process.env.FOOTBALL_API_KEY,
-      "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com",
-    },
-  });
-  return response.data.response;
+// Helper to get current Premier League gameweek (1–38)
+function getGameWeek() {
+  const seasonStart = new Date('2025-08-01'); // adjust each season
+  const today = new Date();
+  const diff = Math.floor((today - seasonStart) / (1000 * 60 * 60 * 24));
+  return Math.max(1, Math.min(38, Math.ceil(diff / 7)));
 }
 
-// Fetch team stats
-async function getTeamStats(teamId) {
-  const response = await axios.get("https://api-football-v1.p.rapidapi.com/v3/teams/statistics", {
-    params: { league: 39, season: 2025, team: teamId },
-    headers: {
-      "X-RapidAPI-Key": process.env.FOOTBALL_API_KEY,
-      "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com",
-    },
-  });
-  return response.data.response;
-}
-
-// Fetch head-to-head
-async function getHeadToHead(homeId, awayId) {
-  const response = await axios.get("https://api-football-v1.p.rapidapi.com/v3/fixtures/headtohead", {
-    params: { h2h: `${homeId}-${awayId}` },
-    headers: {
-      "X-RapidAPI-Key": process.env.FOOTBALL_API_KEY,
-      "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com",
-    },
-  });
-  return response.data.response;
-}
-
-// Fetch injuries
-async function getInjuries(teamId) {
-  const response = await axios.get("https://api-football-v1.p.rapidapi.com/v3/players/injuries", {
-    params: { team: teamId, season: 2025 },
-    headers: {
-      "X-RapidAPI-Key": process.env.FOOTBALL_API_KEY,
-      "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com",
-    },
-  });
-  return response.data.response;
-}
-
-// Format stats for OpenAI prompt
-function formatMatchPrompt(fixture, homeStats, awayStats, headToHead, homeInjuries, awayInjuries) {
-  const homeForm = homeStats.form ? homeStats.form.join(", ") : "No data";
-  const awayForm = awayStats.form ? awayStats.form.join(", ") : "No data";
-
-  const headHistory = headToHead.length
-    ? headToHead.map(h => `${h.teams.home.name} ${h.goals.home} - ${h.goals.away} ${h.teams.away.name}`).join("; ")
-    : "No previous matches";
-
-  const homeInj = homeInjuries.length ? homeInjuries.map(p => p.player.name).join(", ") : "None";
-  const awayInj = awayInjuries.length ? awayInjuries.map(p => p.player.name).join(", ") : "None";
-
-  return `
-Match: ${fixture.teams.home.name} vs ${fixture.teams.away.name}
-Date: ${fixture.fixture.date}
-Venue: ${fixture.fixture.venue.name}
-
-Home Team Stats:
-- Last 5 games: ${homeForm}
-- Injured players: ${homeInj}
-
-Away Team Stats:
-- Last 5 games: ${awayForm}
-- Injured players: ${awayInj}
-
-Head-to-head: ${headHistory}
-
-Predict the most likely score and explain why based on these stats.
-`;
-}
-
-// ------------ Prediction Endpoint ------------
-router.get("/", async (req, res) => {
+// ----- FREE WEEKLY PREDICTION -----
+router.post('/free', auth, async (req, res) => {
   try {
-    const fixtures = await getUpcomingFixtures();
-    if (!fixtures.length) return res.json({ message: "No upcoming matches found." });
+    const { fixtureId, homeTeam, awayTeam, stats } = req.body; // stats: optional advanced stats
+    const gameweek = `GW${getGameWeek()}`;
 
-    const predictions = [];
+    // Fetch the user from DB
+    const user = await User.findById(req.user.id);
 
-    for (const fixture of fixtures) {
-      const homeId = fixture.teams.home.id;
-      const awayId = fixture.teams.away.id;
+    if (!user) return res.status(404).json({ error: 'User not found' });
 
-      // Fetch stats in parallel
-      const [homeStats, awayStats, headToHead, homeInjuries, awayInjuries] = await Promise.all([
-        getTeamStats(homeId),
-        getTeamStats(awayId),
-        getHeadToHead(homeId, awayId),
-        getInjuries(homeId),
-        getInjuries(awayId),
-      ]);
-
-      const prompt = formatMatchPrompt(fixture, homeStats, awayStats, headToHead, homeInjuries, awayInjuries);
-
-      const completion = await client.chat.completions.create({
-        model: "gpt-5-mini",
-        messages: [{ role: "user", content: prompt }],
-      });
-
-      predictions.push({
-        match: `${fixture.teams.home.name} vs ${fixture.teams.away.name}`,
-        prediction: completion.choices[0].message.content,
-      });
+    // Check if user can use free prediction
+    if (!user.isPremium && user.freePredictions.get(gameweek)) {
+      return res.status(403).json({ error: 'Free prediction already used this week' });
     }
 
-    res.json({ predictions });
+    // Call OpenAI to generate prediction
+    const prompt = `
+      Predict the outcome of the football match:
+      Home Team: ${homeTeam}
+      Away Team: ${awayTeam}
+      Stats: ${JSON.stringify(stats || {})}
+      Include likely score and a brief reasoning.
+    `;
+
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: 'You are a football analyst.' },
+        { role: 'user', content: prompt }
+      ],
+    });
+
+    const prediction = completion.choices[0].message.content;
+
+    // Mark free prediction as used
+    if (!user.isPremium) {
+      user.freePredictions.set(gameweek, true);
+      await user.save();
+    }
+
+    res.json({ prediction });
   } catch (err) {
-    console.error("Prediction error:", err);
-    res.status(500).json({ error: "Failed to generate predictions." });
+    console.error(err);
+    res.status(500).json({ error: 'Prediction failed' });
   }
 });
 
