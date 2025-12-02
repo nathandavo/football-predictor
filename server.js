@@ -11,6 +11,13 @@ app.use(cors());
 app.use(express.json());
 
 // --------------------------
+// IMPORT FIXTURES & PREDICTION ROUTES
+// --------------------------
+const fixtureRoutes = require("./routes/fixtures");
+const predictionRoutes = require("./routes/prediction");
+
+
+// --------------------------
 // CONNECT TO MONGO
 // --------------------------
 mongoose
@@ -94,4 +101,4 @@ app.post("/chat", async (req, res) => {
 // START SERVER
 // --------------------------
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+app.listen(PORT, () => console.log(`Server running on ${PORT}`));
