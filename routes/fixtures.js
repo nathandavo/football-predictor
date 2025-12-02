@@ -4,15 +4,14 @@ const router = express.Router();
 
 router.get("/", async (req, res) => {
   try {
-    const response = await axios.get("https://api-football-v1.p.rapidapi.com/v3/fixtures", {
+    const response = await axios.get("https://v3.football.api-sports.io/fixtures", {
       params: {
         league: 39,
         season: 2025,
         next: 10
       },
       headers: {
-        "X-RapidAPI-Key": process.env.RAPIDAPI_KEY,
-"X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"
+        "x-apisports-key": process.env.FOOTBALL_API_KEY   // direct API-Football key
       }
     });
 
@@ -27,5 +26,3 @@ router.get("/", async (req, res) => {
 });
 
 module.exports = router;
-
-
