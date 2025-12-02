@@ -1,65 +1,104 @@
+// server.js
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
+const bcrypt = require("bcryptjs");
 const OpenAI = require("openai");
-
-// Load routes
-const authRoutes = require("./routes/auth");
-const fixtureRoutes = require("./routes/fixtures");
-const predictionRoutes = require("./routes/prediction");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ------------ MongoDB Connection ------------
+// --------------------------
+// CONNECT TO MONGO
+// --------------------------
 mongoose
   .connect(process.env.MONGO_URI)
-  .then(() => console.log("✅ MongoDB Connected"))
-  .catch((err) => console.error("❌ Mongo Error:", err));
+  .then(() => console.log("MongoDB connected"))
+  .catch((err) => console.log("Mongo error:", err));
 
-// ------------ OpenAI Client ------------
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+// --------------------------
+// USER MODEL
+// --------------------------
+const UserSchema = new mongoose.Schema({
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
 });
 
-// ------------ TEST HOME ROUTE ------------
-app.get("/", (req, res) => {
-  res.send("⚽ Football Predictor API is running!");
+const User = mongoose.model("User", UserSchema);
+
+// --------------------------
+// REGISTER ROUTE
+// --------------------------
+app.post("/register", async (req, res) => {
+  const { email, password } = req.body;
+
+  const existing = await User.findOne({ email });
+  if (existing)
+    return res.status(400).json({ error: "Email already exists" });
+
+  const hashedPassword = await bcrypt.hash(password, 10);
+
+  const user = new User({ email, password: hashedPassword });
+  await user.save();
+
+  res.json({ message: "User registered successfully" });
 });
 
-// ------------ AUTH ROUTES ------------
-app.use("/auth", authRoutes);
+// --------------------------
+// LOGIN ROUTE
+// --------------------------
+app.post("/login", async (req, res) => {
+  const { email, password } = req.body;
 
-// ------------ FIXTURES ROUTE ------------
-app.use("/fixtures", fixtureRoutes);
+  const user = await User.findOne({ email });
+  if (!user)
+    return res.status(400).json({ error: "Invalid email or password" });
 
-// ------------ PREDICTION ROUTE ------------
-app.use("/predict", predictionRoutes);
+  const valid = await bcrypt.compare(password, user.password);
+  if (!valid)
+    return res.status(400).json({ error: "Invalid email or password" });
 
-// ------------ CHAT ROUTE (Optional) ------------
+  res.json({ message: "Login successful", userId: user._id });
+});
+
+// --------------------------
+// OPENAI ENDPOINT
+// --------------------------
+const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
 app.post("/chat", async (req, res) => {
   try {
     const { message } = req.body;
-    if (!message) return res.status(400).json({ error: "Message required" });
+
+    if (!message)
+      return res.status(400).json({ error: "Message is required" });
 
     const completion = await client.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         { role: "system", content: "You are a helpful assistant." },
-        { role: "user", content: message },
+        { role: "user", content: message }
       ],
     });
 
     res.json({ reply: completion.choices[0].message.content });
-    
-  } catch (error) {
-    console.error("Chat error:", error);
-    res.status(500).json({ error: "Chat endpoint failed" });
+  } catch (err) {
+    console.log("OpenAI error:", err);
+    res.status(500).json({ error: "Something went wrong" });
   }
 });
+
+// --------------------------
+// START SERVER
+// --------------------------
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`Server running on ${PORT}`));
+
+
 
 // ------------ START SERVER ------------
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+
