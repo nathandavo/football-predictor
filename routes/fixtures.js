@@ -11,8 +11,8 @@ router.get("/", async (req, res) => {
         next: 10
       },
       headers: {
-        "X-RapidAPI-Key": process.env.X-RapidAPI-Key,
-        "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"
+        "X-RapidAPI-Key": process.env.RAPIDAPI_KEY,
+"X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"
       }
     });
 
@@ -27,4 +27,5 @@ router.get("/", async (req, res) => {
 });
 
 module.exports = router;
+
 
