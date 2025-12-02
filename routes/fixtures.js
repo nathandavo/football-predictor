@@ -2,25 +2,21 @@ const express = require("express");
 const axios = require("axios");
 const router = express.Router();
 
-// Premier League = League ID 39
-// Season = 2025
-// Next = upcoming matches
-
 router.get("/", async (req, res) => {
   try {
-    const response = await axios.get("https://v3.football.api-sports.io/fixtures", {
+    const response = await axios.get("https://api-football-v1.p.rapidapi.com/v3/fixtures", {
       params: {
         league: 39,
         season: 2025,
-        next: 10   // number of upcoming fixtures to return
+        next: 10
       },
       headers: {
-        "x-rapidapi-key": process.env.FOOTBALL_API_KEY,
-        "x-rapidapi-host": "v3.football.api-sports.io"
+        "X-RapidAPI-Key": process.env.FOOTBALL_API_KEY,
+        "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"
       }
     });
 
-    res.json(response.data);
+    res.json(response.data.response);
   } catch (error) {
     console.error("Fixtures Error:", error.response?.data || error.message);
     res.status(500).json({
@@ -31,6 +27,3 @@ router.get("/", async (req, res) => {
 });
 
 module.exports = router;
-
-
-
