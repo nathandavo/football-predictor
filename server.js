@@ -15,6 +15,13 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Import auth routes
+const authRoutes = require("./routes/auth");
+
+// Use auth routes
+app.use("/auth", authRoutes);
+
+
 // --------------------------
 // CONNECT TO MONGO
 // --------------------------
