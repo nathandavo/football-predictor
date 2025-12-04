@@ -15,47 +15,36 @@ function getGameWeek() {
   return Math.max(1, Math.min(38, Math.ceil(diff / 7)));
 }
 
-// Function to fetch H2H, goals scored/conceded, xG, and recent form
+// Function to fetch H2H, goals scored/conceded, xG, recent form, wins/draws/losses
 async function fetchStats(homeTeamId, awayTeamId) {
   try {
-    // H2H
+    const headers = {
+      'x-apisports-key': process.env.API_FOOTBALL_KEY,
+    };
+
+    // 1️⃣ Head-to-Head
     const h2hRes = await fetch(
-      `https://api-football-v1.p.rapidapi.com/v3/fixtures/headtohead?h2h=${homeTeamId}-${awayTeamId}`,
-      {
-        method: 'GET',
-        headers: {
-          'X-RapidAPI-Key': process.env.RAPIDAPI_KEY,
-          'X-RapidAPI-Host': 'api-football-v1.p.rapidapi.com',
-        },
-      }
+      `https://v3.football.api-sports.io/fixtures/headtohead?h2h=${homeTeamId}-${awayTeamId}`,
+      { headers }
     );
     const h2hData = await h2hRes.json();
 
-    // Home team stats
+    // 2️⃣ Home team stats
     const homeRes = await fetch(
-      `https://api-football-v1.p.rapidapi.com/v3/teams/statistics?team=${homeTeamId}`,
-      {
-        method: 'GET',
-        headers: {
-          'X-RapidAPI-Key': process.env.RAPIDAPI_KEY,
-          'X-RapidAPI-Host': 'api-football-v1.p.rapidapi.com',
-        },
-      }
+      `https://v3.football.api-sports.io/teams/statistics?team=${homeTeamId}`,
+      { headers }
     );
     const homeData = await homeRes.json();
 
-    // Away team stats
+    // 3️⃣ Away team stats
     const awayRes = await fetch(
-      `https://api-football-v1.p.rapidapi.com/v3/teams/statistics?team=${awayTeamId}`,
-      {
-        method: 'GET',
-        headers: {
-          'X-RapidAPI-Key': process.env.RAPIDAPI_KEY,
-          'X-RapidAPI-Host': 'api-football-v1.p.rapidapi.com',
-        },
-      }
+      `https://v3.football.api-sports.io/teams/statistics?team=${awayTeamId}`,
+      { headers }
     );
     const awayData = await awayRes.json();
+
+    // Helper to parse recent form
+    const parseForm = (formString) => formString ? formString.split('') : [];
 
     return {
       h2h: h2hData.response || [],
@@ -63,16 +52,28 @@ async function fetchStats(homeTeamId, awayTeamId) {
         goalsScored: homeData.response?.goals?.for?.total || 0,
         goalsConceded: homeData.response?.goals?.against?.total || 0,
         xG: homeData.response?.xG?.for?.total || 0,
+        recentForm: parseForm(homeData.response?.form),
+        wins: homeData.response?.fixtures?.wins || 0,
+        draws: homeData.response?.fixtures?.draws || 0,
+        losses: homeData.response?.fixtures?.loses || 0,
       },
       awayStats: {
         goalsScored: awayData.response?.goals?.for?.total || 0,
         goalsConceded: awayData.response?.goals?.against?.total || 0,
         xG: awayData.response?.xG?.for?.total || 0,
+        recentForm: parseForm(awayData.response?.form),
+        wins: awayData.response?.fixtures?.wins || 0,
+        draws: awayData.response?.fixtures?.draws || 0,
+        losses: awayData.response?.fixtures?.loses || 0,
       },
     };
   } catch (err) {
     console.log("Error fetching stats:", err);
-    return {};
+    return {
+      h2h: [],
+      homeStats: { goalsScored: 0, goalsConceded: 0, xG: 0, recentForm: [], wins: 0, draws: 0, losses: 0 },
+      awayStats: { goalsScored: 0, goalsConceded: 0, xG: 0, recentForm: [], wins: 0, draws: 0, losses: 0 },
+    };
   }
 }
 
