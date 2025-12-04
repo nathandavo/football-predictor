@@ -15,7 +15,7 @@ function getGameWeek() {
   return Math.max(1, Math.min(38, Math.ceil(diff / 7)));
 }
 
-// Function to fetch H2H, goals scored/conceded, xG, recent form, wins/draws/losses
+// Function to fetch H2H, goals scored/conceded, recent form, wins/draws/losses
 async function fetchStats(homeTeamId, awayTeamId) {
   try {
     const headers = {
@@ -55,7 +55,6 @@ async function fetchStats(homeTeamId, awayTeamId) {
       homeStats: {
         goalsScored: homeData.response?.goals?.for?.total?.total ?? 0,
         goalsConceded: homeData.response?.goals?.against?.total?.total ?? 0,
-        xG: homeData.response?.expected?.goals ?? 0,
         recentForm: parseForm(homeData.response?.form),
         wins: homeData.response?.fixtures?.wins?.total ?? 0,
         draws: homeData.response?.fixtures?.draws?.total ?? 0,
@@ -65,7 +64,6 @@ async function fetchStats(homeTeamId, awayTeamId) {
       awayStats: {
         goalsScored: awayData.response?.goals?.for?.total?.total ?? 0,
         goalsConceded: awayData.response?.goals?.against?.total?.total ?? 0,
-        xG: awayData.response?.expected?.goals ?? 0,
         recentForm: parseForm(awayData.response?.form),
         wins: awayData.response?.fixtures?.wins?.total ?? 0,
         draws: awayData.response?.fixtures?.draws?.total ?? 0,
@@ -77,8 +75,8 @@ async function fetchStats(homeTeamId, awayTeamId) {
     console.log("Error fetching stats:", err);
     return {
       h2h: [],
-      homeStats: { goalsScored: 0, goalsConceded: 0, xG: 0, recentForm: [], wins: 0, draws: 0, losses: 0 },
-      awayStats: { goalsScored: 0, goalsConceded: 0, xG: 0, recentForm: [], wins: 0, draws: 0, losses: 0 },
+      homeStats: { goalsScored: 0, goalsConceded: 0, recentForm: [], wins: 0, draws: 0, losses: 0 },
+      awayStats: { goalsScored: 0, goalsConceded: 0, recentForm: [], wins: 0, draws: 0, losses: 0 },
     };
   }
 }
@@ -139,4 +137,3 @@ router.post('/free', auth, async (req, res) => {
 });
 
 module.exports = router;
-
