@@ -79,7 +79,7 @@ async function fetchStats(homeTeamId, awayTeamId) {
 // ----- FREE WEEKLY PREDICTION -----
 router.post('/free', auth, async (req, res) => {
   try {
-    const { fixtureId, homeTeam, awayTeam } = req.body; // use fixtureId from body
+    const { fixtureId, homeTeam, awayTeam } = req.body; // use IDs from body
     const gameweek = `GW${getGameWeek()}`;
 
     // Fetch the user from DB
