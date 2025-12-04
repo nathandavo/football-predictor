@@ -113,7 +113,7 @@ router.post('/free', auth, async (req, res) => {
       Home Team: ${homeTeam}
       Away Team: ${awayTeam}
       Stats: ${JSON.stringify(stats)}
-      Include likely score and a brief reasoning.
+      Include likely score and a brief reasoning in 3 sentences.
     `;
 
     const completion = await openai.chat.completions.create({
@@ -139,3 +139,4 @@ router.post('/free', auth, async (req, res) => {
 });
 
 module.exports = router;
+
