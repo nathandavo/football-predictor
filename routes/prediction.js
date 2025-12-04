@@ -3,6 +3,7 @@ const router = express.Router();
 const auth = require('../middleware/auth');
 const OpenAI = require('openai');
 const User = require('../models/User');
+const fetch = require('node-fetch'); // make sure to install node-fetch
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -14,15 +15,61 @@ function getGameWeek() {
   return Math.max(1, Math.min(38, Math.ceil(diff / 7)));
 }
 
+// Function to fetch H2H, goals, and recent form
+async function fetchStats(homeTeam, awayTeam) {
+  try {
+    const h2hRes = await fetch(`https://api-football-v1.p.rapidapi.com/v3/fixtures/headtohead?h2h=${homeTeam}-${awayTeam}`, {
+      method: 'GET',
+      headers: {
+        'X-RapidAPI-Key': process.env.RAPIDAPI_KEY,
+        'X-RapidAPI-Host': 'api-football-v1.p.rapidapi.com',
+      },
+    });
+    const h2hData = await h2hRes.json();
+
+    const homeFormRes = await fetch(`https://api-football-v1.p.rapidapi.com/v3/teams/statistics?team=${homeTeam}`, {
+      method: 'GET',
+      headers: {
+        'X-RapidAPI-Key': process.env.RAPIDAPI_KEY,
+        'X-RapidAPI-Host': 'api-football-v1.p.rapidapi.com',
+      },
+    });
+    const homeFormData = await homeFormRes.json();
+
+    const awayFormRes = await fetch(`https://api-football-v1.p.rapidapi.com/v3/teams/statistics?team=${awayTeam}`, {
+      method: 'GET',
+      headers: {
+        'X-RapidAPI-Key': process.env.RAPIDAPI_KEY,
+        'X-RapidAPI-Host': 'api-football-v1.p.rapidapi.com',
+      },
+    });
+    const awayFormData = await awayFormRes.json();
+
+    return {
+      h2h: h2hData.response || [],
+      homeStats: {
+        goalsScored: homeFormData.response?.goals?.for.total || 0,
+        recentForm: homeFormData.response?.fixtures?.last?.slice(-5) || [],
+      },
+      awayStats: {
+        goalsScored: awayFormData.response?.goals?.for.total || 0,
+        recentForm: awayFormData.response?.fixtures?.last?.slice(-5) || [],
+      },
+    };
+  } catch (err) {
+    console.log("Error fetching stats:", err);
+    return {};
+  }
+}
+
 // ----- FREE WEEKLY PREDICTION -----
 router.post('/free', auth, async (req, res) => {
   try {
-    const { fixtureId, homeTeam, awayTeam, stats } = req.body; // stats: optional advanced stats
+    const { fixtureId, homeTeam, awayTeam } = req.body;
     const gameweek = `GW${getGameWeek()}`;
 
     // Fetch the user from DB
     const user = await User.findById(req.user.id);
-
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     // Check if user can use free prediction
@@ -30,12 +77,16 @@ router.post('/free', auth, async (req, res) => {
       return res.status(403).json({ error: 'Free prediction already used this week' });
     }
 
+    // Fetch stats from Football API
+    const stats = await fetchStats(homeTeam, awayTeam);
+    console.log("Stats being sent to OpenAI:", stats);
+
     // Call OpenAI to generate prediction
     const prompt = `
       Predict the outcome of the football match:
       Home Team: ${homeTeam}
       Away Team: ${awayTeam}
-      Stats: ${JSON.stringify(stats || {})}
+      Stats: ${JSON.stringify(stats)}
       Include likely score and a brief reasoning.
     `;
 
