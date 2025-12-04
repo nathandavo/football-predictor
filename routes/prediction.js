@@ -96,7 +96,7 @@ router.post('/free', auth, async (req, res) => {
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     // Check if user can use free prediction
-    if (!user.isPremium && user.freePredictions.get(gameweek)) {
+    if (!user.isPremium && user.freePredictions[gameweek]) { // <-- FIXED
       return res.status(403).json({ error: 'Free prediction already used this week' });
     }
 
@@ -125,7 +125,7 @@ router.post('/free', auth, async (req, res) => {
 
     // Mark free prediction as used
     if (!user.isPremium) {
-      user.freePredictions.set(gameweek, true);
+      user.freePredictions[gameweek] = true; // <-- FIXED
       await user.save();
     }
 
