@@ -15,52 +15,59 @@ function getGameWeek() {
   return Math.max(1, Math.min(38, Math.ceil(diff / 7)));
 }
 
-// Function to fetch H2H, goals, xG, and recent form
-async function fetchStats(homeTeam, awayTeam) {
+// Function to fetch H2H, goals scored/conceded, xG, and recent form
+async function fetchStats(homeTeamId, awayTeamId) {
   try {
     // H2H
-    const h2hRes = await fetch(`https://api-football-v1.p.rapidapi.com/v3/fixtures/headtohead?h2h=${homeTeam}-${awayTeam}`, {
-      method: 'GET',
-      headers: {
-        'X-RapidAPI-Key': process.env.RAPIDAPI_KEY,
-        'X-RapidAPI-Host': 'api-football-v1.p.rapidapi.com',
-      },
-    });
+    const h2hRes = await fetch(
+      `https://api-football-v1.p.rapidapi.com/v3/fixtures/headtohead?h2h=${homeTeamId}-${awayTeamId}`,
+      {
+        method: 'GET',
+        headers: {
+          'X-RapidAPI-Key': process.env.RAPIDAPI_KEY,
+          'X-RapidAPI-Host': 'api-football-v1.p.rapidapi.com',
+        },
+      }
+    );
     const h2hData = await h2hRes.json();
 
     // Home team stats
-    const homeRes = await fetch(`https://api-football-v1.p.rapidapi.com/v3/teams/statistics?team=${homeTeam}`, {
-      method: 'GET',
-      headers: {
-        'X-RapidAPI-Key': process.env.RAPIDAPI_KEY,
-        'X-RapidAPI-Host': 'api-football-v1.p.rapidapi.com',
-      },
-    });
+    const homeRes = await fetch(
+      `https://api-football-v1.p.rapidapi.com/v3/teams/statistics?team=${homeTeamId}`,
+      {
+        method: 'GET',
+        headers: {
+          'X-RapidAPI-Key': process.env.RAPIDAPI_KEY,
+          'X-RapidAPI-Host': 'api-football-v1.p.rapidapi.com',
+        },
+      }
+    );
     const homeData = await homeRes.json();
 
     // Away team stats
-    const awayRes = await fetch(`https://api-football-v1.p.rapidapi.com/v3/teams/statistics?team=${awayTeam}`, {
-      method: 'GET',
-      headers: {
-        'X-RapidAPI-Key': process.env.RAPIDAPI_KEY,
-        'X-RapidAPI-Host': 'api-football-v1.p.rapidapi.com',
-      },
-    });
+    const awayRes = await fetch(
+      `https://api-football-v1.p.rapidapi.com/v3/teams/statistics?team=${awayTeamId}`,
+      {
+        method: 'GET',
+        headers: {
+          'X-RapidAPI-Key': process.env.RAPIDAPI_KEY,
+          'X-RapidAPI-Host': 'api-football-v1.p.rapidapi.com',
+        },
+      }
+    );
     const awayData = await awayRes.json();
 
     return {
       h2h: h2hData.response || [],
       homeStats: {
-        goalsScored: homeData.response?.goals?.for.total || 0,
-        goalsConceded: homeData.response?.goals?.against.total || 0,
-        xG: homeData.response?.expected_goals?.total || 0,
-        recentForm: homeData.response?.fixtures?.last?.slice(-5) || [],
+        goalsScored: homeData.response?.goals?.for?.total || 0,
+        goalsConceded: homeData.response?.goals?.against?.total || 0,
+        xG: homeData.response?.xG?.for?.total || 0,
       },
       awayStats: {
-        goalsScored: awayData.response?.goals?.for.total || 0,
-        goalsConceded: awayData.response?.goals?.against.total || 0,
-        xG: awayData.response?.expected_goals?.total || 0,
-        recentForm: awayData.response?.fixtures?.last?.slice(-5) || [],
+        goalsScored: awayData.response?.goals?.for?.total || 0,
+        goalsConceded: awayData.response?.goals?.against?.total || 0,
+        xG: awayData.response?.xG?.for?.total || 0,
       },
     };
   } catch (err) {
@@ -72,7 +79,7 @@ async function fetchStats(homeTeam, awayTeam) {
 // ----- FREE WEEKLY PREDICTION -----
 router.post('/free', auth, async (req, res) => {
   try {
-    const { fixtureId, homeTeam, awayTeam } = req.body;
+    const { fixtureId, homeTeam, awayTeam } = req.body; // use fixtureId from body
     const gameweek = `GW${getGameWeek()}`;
 
     // Fetch the user from DB
