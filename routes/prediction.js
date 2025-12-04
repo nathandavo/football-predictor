@@ -15,9 +15,10 @@ function getGameWeek() {
   return Math.max(1, Math.min(38, Math.ceil(diff / 7)));
 }
 
-// Function to fetch H2H, goals, and recent form
+// Function to fetch H2H, goals, xG, and recent form
 async function fetchStats(homeTeam, awayTeam) {
   try {
+    // H2H
     const h2hRes = await fetch(`https://api-football-v1.p.rapidapi.com/v3/fixtures/headtohead?h2h=${homeTeam}-${awayTeam}`, {
       method: 'GET',
       headers: {
@@ -27,33 +28,39 @@ async function fetchStats(homeTeam, awayTeam) {
     });
     const h2hData = await h2hRes.json();
 
-    const homeFormRes = await fetch(`https://api-football-v1.p.rapidapi.com/v3/teams/statistics?team=${homeTeam}`, {
+    // Home team stats
+    const homeRes = await fetch(`https://api-football-v1.p.rapidapi.com/v3/teams/statistics?team=${homeTeam}`, {
       method: 'GET',
       headers: {
         'X-RapidAPI-Key': process.env.RAPIDAPI_KEY,
         'X-RapidAPI-Host': 'api-football-v1.p.rapidapi.com',
       },
     });
-    const homeFormData = await homeFormRes.json();
+    const homeData = await homeRes.json();
 
-    const awayFormRes = await fetch(`https://api-football-v1.p.rapidapi.com/v3/teams/statistics?team=${awayTeam}`, {
+    // Away team stats
+    const awayRes = await fetch(`https://api-football-v1.p.rapidapi.com/v3/teams/statistics?team=${awayTeam}`, {
       method: 'GET',
       headers: {
         'X-RapidAPI-Key': process.env.RAPIDAPI_KEY,
         'X-RapidAPI-Host': 'api-football-v1.p.rapidapi.com',
       },
     });
-    const awayFormData = await awayFormRes.json();
+    const awayData = await awayRes.json();
 
     return {
       h2h: h2hData.response || [],
       homeStats: {
-        goalsScored: homeFormData.response?.goals?.for.total || 0,
-        recentForm: homeFormData.response?.fixtures?.last?.slice(-5) || [],
+        goalsScored: homeData.response?.goals?.for.total || 0,
+        goalsConceded: homeData.response?.goals?.against.total || 0,
+        xG: homeData.response?.expected_goals?.total || 0,
+        recentForm: homeData.response?.fixtures?.last?.slice(-5) || [],
       },
       awayStats: {
-        goalsScored: awayFormData.response?.goals?.for.total || 0,
-        recentForm: awayFormData.response?.fixtures?.last?.slice(-5) || [],
+        goalsScored: awayData.response?.goals?.for.total || 0,
+        goalsConceded: awayData.response?.goals?.against.total || 0,
+        xG: awayData.response?.expected_goals?.total || 0,
+        recentForm: awayData.response?.fixtures?.last?.slice(-5) || [],
       },
     };
   } catch (err) {
