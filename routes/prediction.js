@@ -20,7 +20,6 @@ async function fetchStats(homeTeamId, awayTeamId) {
   try {
     const headers = {
       'x-apisports-key': process.env.API_FOOTBALL_KEY,
-      'x-apisports-host': 'v3.football.api-sports.io'
     };
 
     const league = 39;  // Premier League
@@ -87,24 +86,20 @@ async function fetchStats(homeTeamId, awayTeamId) {
 // ----- FREE WEEKLY PREDICTION -----
 router.post('/free', auth, async (req, res) => {
   try {
-    // Ensure we are getting numeric IDs
     let { fixtureId, homeTeam, awayTeam } = req.body;
 
-    // If someone sends objects instead of IDs
     if (homeTeam?.id) homeTeam = homeTeam.id;
     if (awayTeam?.id) awayTeam = awayTeam.id;
 
     const gameweek = `GW${getGameWeek()}`;
 
-    // Fetch the user from DB
     if (!req.user || !req.user.id) {
       return res.status(401).json({ error: 'Unauthorized: user missing' });
     }
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    // Check if user can use free prediction
-    if (!user.isPremium && user.freePredictions[gameweek]) { // <-- FIXED
+    if (!user.isPremium && user.freePredictions[gameweek]) {
       return res.status(403).json({ error: 'Free prediction already used this week' });
     }
 
@@ -131,9 +126,8 @@ router.post('/free', auth, async (req, res) => {
 
     const prediction = completion.choices[0].message.content;
 
-    // Mark free prediction as used
     if (!user.isPremium) {
-      user.freePredictions[gameweek] = true; // <-- FIXED
+      user.freePredictions[gameweek] = true;
       await user.save();
     }
 
@@ -145,4 +139,3 @@ router.post('/free', auth, async (req, res) => {
 });
 
 module.exports = router;
-
