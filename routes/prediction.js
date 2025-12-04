@@ -79,10 +79,19 @@ async function fetchStats(homeTeamId, awayTeamId) {
 // ----- FREE WEEKLY PREDICTION -----
 router.post('/free', auth, async (req, res) => {
   try {
-    const { fixtureId, homeTeam, awayTeam } = req.body; // use IDs from body
+    // Ensure we are getting numeric IDs
+    let { fixtureId, homeTeam, awayTeam } = req.body;
+
+    // If someone sends objects instead of IDs
+    if (homeTeam?.id) homeTeam = homeTeam.id;
+    if (awayTeam?.id) awayTeam = awayTeam.id;
+
     const gameweek = `GW${getGameWeek()}`;
 
     // Fetch the user from DB
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ error: 'Unauthorized: user missing' });
+    }
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
