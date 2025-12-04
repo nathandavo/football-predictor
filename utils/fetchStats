@@ -1,11 +1,11 @@
-// utils/fetchStats.js
-const fetch = require('node-fetch');
-
 async function fetchStats(homeTeamId, awayTeamId) {
   try {
     const headers = {
-      'x-apisports-key': process.env.API_FOOTBALL_KEY,
+      "x-apisports-key": process.env.API_FOOTBALL_KEY,
     };
+
+    const league = 39;      // Premier League
+    const season = 2024;    // Change if needed
 
     // 1️⃣ Head-to-Head
     const h2hRes = await fetch(
@@ -16,50 +16,51 @@ async function fetchStats(homeTeamId, awayTeamId) {
 
     // 2️⃣ Home team stats
     const homeRes = await fetch(
-      `https://v3.football.api-sports.io/teams/statistics?team=${homeTeamId}`,
+      `https://v3.football.api-sports.io/teams/statistics?league=${league}&season=${season}&team=${homeTeamId}`,
       { headers }
     );
     const homeData = await homeRes.json();
 
     // 3️⃣ Away team stats
     const awayRes = await fetch(
-      `https://v3.football.api-sports.io/teams/statistics?team=${awayTeamId}`,
+      `https://v3.football.api-sports.io/teams/statistics?league=${league}&season=${season}&team=${awayTeamId}`,
       { headers }
     );
     const awayData = await awayRes.json();
 
-    // Extract recent form (last 5 matches)
-    const parseForm = (formString) => formString ? formString.split('') : [];
-
     return {
       h2h: h2hData.response || [],
+
       homeStats: {
-        goalsScored: homeData.response?.goals?.for?.total || 0,
-        goalsConceded: homeData.response?.goals?.against?.total || 0,
-        xG: homeData.response?.xG?.for?.total || 0,
-        recentForm: parseForm(homeData.response?.form),
-        wins: homeData.response?.fixtures?.wins || 0,
-        draws: homeData.response?.fixtures?.draws || 0,
-        losses: homeData.response?.fixtures?.loses || 0,
+        goalsScored: homeData.response?.goals?.for?.total?.total || 0,
+        goalsConceded: homeData.response?.goals?.against?.total?.total || 0,
+        recentForm:
+          homeData.response?.form
+            ? homeData.response.form.split("")
+            : [],
+        wins: homeData.response?.fixtures?.wins?.total || 0,
+        draws: homeData.response?.fixtures?.draws?.total || 0,
+        losses: homeData.response?.fixtures?.loses?.total || 0,
       },
+
       awayStats: {
-        goalsScored: awayData.response?.goals?.for?.total || 0,
-        goalsConceded: awayData.response?.goals?.against?.total || 0,
-        xG: awayData.response?.xG?.for?.total || 0,
-        recentForm: parseForm(awayData.response?.form),
-        wins: awayData.response?.fixtures?.wins || 0,
-        draws: awayData.response?.fixtures?.draws || 0,
-        losses: awayData.response?.fixtures?.loses || 0,
+        goalsScored: awayData.response?.goals?.for?.total?.total || 0,
+        goalsConceded: awayData.response?.goals?.against?.total?.total || 0,
+        recentForm:
+          awayData.response?.form
+            ? awayData.response.form.split("")
+            : [],
+        wins: awayData.response?.fixtures?.wins?.total || 0,
+        draws: awayData.response?.fixtures?.draws?.total || 0,
+        losses: awayData.response?.fixtures?.loses?.total || 0,
       },
     };
   } catch (err) {
     console.log("Error fetching stats:", err);
     return {
       h2h: [],
-      homeStats: { goalsScored: 0, goalsConceded: 0, xG: 0, recentForm: [], wins: 0, draws: 0, losses: 0 },
-      awayStats: { goalsScored: 0, goalsConceded: 0, xG: 0, recentForm: [], wins: 0, draws: 0, losses: 0 },
+      homeStats: {},
+      awayStats: {},
     };
   }
 }
-
-module.exports = fetchStats;
