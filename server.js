@@ -76,6 +76,33 @@ app.post("/chat", async (req, res) => {
 });
 
 // --------------------------
+// STRIPE PAYMENT ENDPOINT
+// --------------------------
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+
+app.post("/payment", async (req, res) => {
+  try {
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      mode: "payment",
+      line_items: [
+        {
+          price: process.env.STRIPE_PRICE_ID, // Render environment variable
+          quantity: 1,
+        },
+      ],
+      success_url: `${process.env.APP_URL}/success`,
+      cancel_url: `${process.env.APP_URL}/cancel`,
+    });
+
+    res.json({ url: session.url });
+  } catch (err) {
+    console.error("Stripe error:", err);
+    res.status(500).json({ error: "Failed to create Stripe session" });
+  }
+});
+
+// --------------------------
 // START SERVER
 // --------------------------
 const PORT = process.env.PORT || 5000;
