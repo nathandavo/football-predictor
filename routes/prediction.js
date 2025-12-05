@@ -158,11 +158,18 @@ router.post('/free', auth, async (req, res) => {
     const stats = await fetchStats(homeTeam, awayTeam);
     console.log('Stats being sent to OpenAI:', JSON.stringify(stats, null, 2));
 
-    // ✅ FIXED PROMPT: no stadiums, only home/away record, form, goals, H2H
+    // Random boldness (30% chance)
+    const boldChance = Math.random() < 0.3;
+    const boldInstruction = boldChance
+      ? "Occasionally phrase your prediction boldly if the stats support it. Use confident language like 'will dominate', 'likely to win convincingly', or 'high chance of scoring multiple goals'."
+      : "";
+
+    // ✅ Updated prompt with boldness
     const prompt = [
       `You are a football analyst. Provide a concise prediction in bullet points (score and reasoning).`,
       `Do NOT mention stadiums, grounds, or venue names.`,
       `Only mention: recent form, goals scored/conceded, team stats, home/away performance, and head-to-head.`,
+      boldInstruction,
       `Home team: ${stats.homeStats.name} (ID: ${homeTeam})`,
       `Away team: ${stats.awayStats.name} (ID: ${awayTeam})`,
       `Stats: ${JSON.stringify(stats)}`
@@ -175,6 +182,7 @@ router.post('/free', auth, async (req, res) => {
         { role: 'user', content: prompt }
       ],
       max_tokens: 300,
+      temperature: 0.75, // slightly higher for more expressive phrasing
     });
 
     const prediction = completion.choices?.[0]?.message?.content ?? 'No prediction returned';
@@ -196,4 +204,3 @@ router.post('/free', auth, async (req, res) => {
 });
 
 module.exports = router;
-
