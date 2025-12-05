@@ -40,20 +40,22 @@ async function fetchStats(homeTeamId, awayTeamId) {
       );
       const data = await res.json().catch(() => ({}));
       if (!data.response) return [];
-      // Map results, most recent match first
-      return data.response
-        .reverse() // fix: reverse here first
-        .map(match => {
-          if (match.teams.home.id === teamId) {
-            if (match.goals.home > match.goals.away) return "W";
-            if (match.goals.home < match.goals.away) return "L";
-            return "D";
-          } else {
-            if (match.goals.away > match.goals.home) return "W";
-            if (match.goals.away < match.goals.home) return "L";
-            return "D";
-          }
-        });
+
+      // Sort by date ascending (oldest first) to ensure chronological order
+      const sortedMatches = data.response.sort((a, b) => new Date(a.fixture.date) - new Date(b.fixture.date));
+
+      // Map results: "W", "D", "L"
+      return sortedMatches.map(match => {
+        if (match.teams.home.id === teamId) {
+          if (match.goals.home > match.goals.away) return "W";
+          if (match.goals.home < match.goals.away) return "L";
+          return "D";
+        } else {
+          if (match.goals.away > match.goals.home) return "W";
+          if (match.goals.away < match.goals.home) return "L";
+          return "D";
+        }
+      });
     };
 
     // H2H for completeness
@@ -91,7 +93,7 @@ async function fetchStats(homeTeamId, awayTeamId) {
         name: safe(homeData, 'response.team.name', 'Home Team'),
         goalsScored: safe(homeData, 'response.goals.for.total.total', 0),
         goalsConceded: safe(homeData, 'response.goals.against.total.total', 0),
-        recentForm: homeForm,
+        recentForm: homeForm, // oldest → most recent
         wins: safe(homeData, 'response.fixtures.wins.total', 0),
         draws: safe(homeData, 'response.fixtures.draws.total', 0),
         losses: safe(homeData, 'response.fixtures.loses.total', 0),
@@ -101,7 +103,7 @@ async function fetchStats(homeTeamId, awayTeamId) {
         name: safe(awayData, 'response.team.name', 'Away Team'),
         goalsScored: safe(awayData, 'response.goals.for.total.total', 0),
         goalsConceded: safe(awayData, 'response.goals.against.total.total', 0),
-        recentForm: awayForm,
+        recentForm: awayForm, // oldest → most recent
         wins: safe(awayData, 'response.fixtures.wins.total', 0),
         draws: safe(awayData, 'response.fixtures.draws.total', 0),
         losses: safe(awayData, 'response.fixtures.loses.total', 0),
