@@ -35,18 +35,13 @@ async function fetchStats(homeTeamId, awayTeamId) {
     // Helper to get last 5 matches form for a team
     const getRecentForm = async (teamId) => {
       const res = await fetch(
-        `https://v3.football.api-sports.io/fixtures?team=${teamId}&league=${league}&last=10`,
+        `https://v3.football.api-sports.io/fixtures?team=${teamId}&league=${league}&last=5`,
         { headers }
       );
       const data = await res.json().catch(() => ({}));
       if (!data.response) return [];
-
-      // Sort by date descending (most recent first)
-      const sortedMatches = data.response
-        .sort((a, b) => new Date(b.fixture.date) - new Date(a.fixture.date))
-        .slice(0, 5);
-
-      return sortedMatches.map(match => {
+      // Map results and reverse to make most recent first
+      return data.response.map(match => {
         if (match.teams.home.id === teamId) {
           if (match.goals.home > match.goals.away) return "W";
           if (match.goals.home < match.goals.away) return "L";
@@ -56,17 +51,13 @@ async function fetchStats(homeTeamId, awayTeamId) {
           if (match.goals.away < match.goals.home) return "L";
           return "D";
         }
-      });
+      }).reverse(); // Fix: most recent game first
     };
 
     // H2H for completeness
     const h2hUrl = `https://v3.football.api-sports.io/fixtures/headtohead?h2h=${homeTeamId}-${awayTeamId}`;
     const h2hRes = await fetch(h2hUrl, { headers });
-    const h2hDataRaw = await h2hRes.json().catch(() => ({}));
-    let h2hData = Array.isArray(h2hDataRaw.response) ? h2hDataRaw.response : [];
-
-    // Sort H2H by date descending (most recent first)
-    h2hData.sort((a, b) => new Date(b.fixture.date) - new Date(a.fixture.date));
+    const h2hData = await h2hRes.json().catch(() => ({}));
 
     // Last 5 matches form for each team
     const [homeForm, awayForm] = await Promise.all([
@@ -74,7 +65,7 @@ async function fetchStats(homeTeamId, awayTeamId) {
       getRecentForm(awayTeamId)
     ]);
 
-    // Fetch overall stats for goals/wins/draws if needed
+    // Optionally, fetch overall stats for goals/wins/draws if needed (season-specific)
     const [homeStatsRes, awayStatsRes] = await Promise.all([
       fetch(`https://v3.football.api-sports.io/teams/statistics?league=${league}&season=2025&team=${homeTeamId}`, { headers }),
       fetch(`https://v3.football.api-sports.io/teams/statistics?league=${league}&season=2025&team=${awayTeamId}`, { headers }),
@@ -92,8 +83,10 @@ async function fetchStats(homeTeamId, awayTeamId) {
     const awayData = await awayStatsRes.json().catch(() => ({}));
 
     const stats = {
-      h2h: h2hData,
+      h2h: safe(h2hData, 'response', []),
       homeStats: {
+        id: homeTeamId,
+        name: safe(homeData, 'response.team.name', 'Home Team'),
         goalsScored: safe(homeData, 'response.goals.for.total.total', 0),
         goalsConceded: safe(homeData, 'response.goals.against.total.total', 0),
         recentForm: homeForm,
@@ -102,6 +95,8 @@ async function fetchStats(homeTeamId, awayTeamId) {
         losses: safe(homeData, 'response.fixtures.loses.total', 0),
       },
       awayStats: {
+        id: awayTeamId,
+        name: safe(awayData, 'response.team.name', 'Away Team'),
         goalsScored: safe(awayData, 'response.goals.for.total.total', 0),
         goalsConceded: safe(awayData, 'response.goals.against.total.total', 0),
         recentForm: awayForm,
@@ -116,8 +111,8 @@ async function fetchStats(homeTeamId, awayTeamId) {
     console.log('Error fetching stats:', err);
     return {
       h2h: [],
-      homeStats: { goalsScored: 0, goalsConceded: 0, recentForm: [], wins: 0, draws: 0, losses: 0 },
-      awayStats: { goalsScored: 0, goalsConceded: 0, recentForm: [], wins: 0, draws: 0, losses: 0 },
+      homeStats: { id: null, name: 'Home', goalsScored: 0, goalsConceded: 0, recentForm: [], wins: 0, draws: 0, losses: 0 },
+      awayStats: { id: null, name: 'Away', goalsScored: 0, goalsConceded: 0, recentForm: [], wins: 0, draws: 0, losses: 0 },
     };
   }
 }
@@ -127,6 +122,7 @@ router.post('/free', auth, async (req, res) => {
   try {
     let { fixtureId, homeTeam, awayTeam } = req.body;
 
+    // Accept either numeric id, object { id, name }, or nested fixture object
     if (!homeTeam && req.body.fixture) {
       const f = req.body.fixture;
       homeTeam = f?.home?.id ?? homeTeam;
@@ -154,17 +150,20 @@ router.post('/free', auth, async (req, res) => {
       return res.status(403).json({ error: 'Free prediction already used this week' });
     }
 
+    // Get stats
     const stats = await fetchStats(homeTeam, awayTeam);
     console.log('Stats being sent to OpenAI:', JSON.stringify(stats, null, 2));
 
+    // Build a compact prompt (reduce tokens)
     const prompt = [
       `You are a football analyst. Provide a concise prediction in bullet points (score and reasoning).`,
-      `Home team ID: ${homeTeam}`,
-      `Away team ID: ${awayTeam}`,
+      `Home team: ${stats.homeStats.name} (ID: ${homeTeam})`,
+      `Away team: ${stats.awayStats.name} (ID: ${awayTeam})`,
       `Use H2H only to mention the last time they played; focus primarily on recent form, goals scored/conceded, and team stats.`,
       `Stats: ${JSON.stringify(stats)}`
     ].join('\n');
 
+    // Call OpenAI (watch for quota/rate limits)
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
@@ -176,6 +175,7 @@ router.post('/free', auth, async (req, res) => {
 
     const prediction = completion.choices?.[0]?.message?.content ?? 'No prediction returned';
 
+    // Mark free used (object)
     if (!user.isPremium) {
       user.freePredictions = user.freePredictions || {};
       user.freePredictions[gameweek] = true;
