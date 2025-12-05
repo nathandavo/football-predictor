@@ -52,6 +52,7 @@ async function fetchStats(homeTeamId, awayTeamId) {
           return "D";
         }
       });
+      .reverse();
     };
 
     // H2H for completeness
@@ -193,6 +194,7 @@ const prompt = [
 });
 
 module.exports = router;
+
 
 
 
