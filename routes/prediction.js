@@ -114,7 +114,7 @@ async function fetchStats(homeTeamId, awayTeamId) {
   } catch (err) {
     console.log('Error fetching stats:', err);
     return {
-      h2h: [],
+      h2h: [], 
       homeStats: { id: null, name: 'Home', goalsScored: 0, goalsConceded: 0, recentForm: [], wins: 0, draws: 0, losses: 0 },
       awayStats: { id: null, name: 'Away', goalsScored: 0, goalsConceded: 0, recentForm: [], wins: 0, draws: 0, losses: 0 },
     };
@@ -157,11 +157,13 @@ router.post('/free', auth, async (req, res) => {
     const stats = await fetchStats(homeTeam, awayTeam);
     console.log('Stats being sent to OpenAI:', JSON.stringify(stats, null, 2));
 
+    // ✅ FIXED PROMPT: no stadiums, only home/away record, form, goals, H2H
     const prompt = [
       `You are a football analyst. Provide a concise prediction in bullet points (score and reasoning).`,
+      `Do NOT mention stadiums, grounds, or venue names.`,
+      `Only mention: recent form, goals scored/conceded, team stats, home/away performance, and head-to-head.`,
       `Home team: ${stats.homeStats.name} (ID: ${homeTeam})`,
       `Away team: ${stats.awayStats.name} (ID: ${awayTeam})`,
-      `Use H2H only to mention the last time they played; focus primarily on recent form, goals scored/conceded, and team stats.`,
       `Stats: ${JSON.stringify(stats)}`
     ].join('\n');
 
