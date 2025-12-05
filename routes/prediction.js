@@ -30,19 +30,23 @@ async function fetchStats(homeTeamId, awayTeamId) {
     }
 
     const headers = { 'x-apisports-key': key };
-
     const league = 39;  // Premier League
 
     // Helper to get last 5 matches form for a team
     const getRecentForm = async (teamId) => {
       const res = await fetch(
-        `https://v3.football.api-sports.io/fixtures?team=${teamId}&league=${league}&last=5`,
+        `https://v3.football.api-sports.io/fixtures?team=${teamId}&league=${league}&last=10`,
         { headers }
       );
       const data = await res.json().catch(() => ({}));
       if (!data.response) return [];
-      // Map results
-      return data.response.map(match => {
+
+      // Sort by date descending (most recent first)
+      const sortedMatches = data.response
+        .sort((a, b) => new Date(b.fixture.date) - new Date(a.fixture.date))
+        .slice(0, 5);
+
+      return sortedMatches.map(match => {
         if (match.teams.home.id === teamId) {
           if (match.goals.home > match.goals.away) return "W";
           if (match.goals.home < match.goals.away) return "L";
@@ -52,13 +56,17 @@ async function fetchStats(homeTeamId, awayTeamId) {
           if (match.goals.away < match.goals.home) return "L";
           return "D";
         }
-      }).reverse(); // Reverse to make most recent match first
+      });
     };
 
     // H2H for completeness
     const h2hUrl = `https://v3.football.api-sports.io/fixtures/headtohead?h2h=${homeTeamId}-${awayTeamId}`;
     const h2hRes = await fetch(h2hUrl, { headers });
-    const h2hData = await h2hRes.json().catch(() => ({}));
+    const h2hDataRaw = await h2hRes.json().catch(() => ({}));
+    let h2hData = Array.isArray(h2hDataRaw.response) ? h2hDataRaw.response : [];
+
+    // Sort H2H by date descending (most recent first)
+    h2hData.sort((a, b) => new Date(b.fixture.date) - new Date(a.fixture.date));
 
     // Last 5 matches form for each team
     const [homeForm, awayForm] = await Promise.all([
@@ -66,7 +74,7 @@ async function fetchStats(homeTeamId, awayTeamId) {
       getRecentForm(awayTeamId)
     ]);
 
-    // Optionally, fetch overall stats for goals/wins/draws if needed (season-specific)
+    // Fetch overall stats for goals/wins/draws if needed
     const [homeStatsRes, awayStatsRes] = await Promise.all([
       fetch(`https://v3.football.api-sports.io/teams/statistics?league=${league}&season=2025&team=${homeTeamId}`, { headers }),
       fetch(`https://v3.football.api-sports.io/teams/statistics?league=${league}&season=2025&team=${awayTeamId}`, { headers }),
@@ -84,7 +92,7 @@ async function fetchStats(homeTeamId, awayTeamId) {
     const awayData = await awayStatsRes.json().catch(() => ({}));
 
     const stats = {
-      h2h: safe(h2hData, 'response', []),
+      h2h: h2hData,
       homeStats: {
         goalsScored: safe(homeData, 'response.goals.for.total.total', 0),
         goalsConceded: safe(homeData, 'response.goals.against.total.total', 0),
@@ -119,7 +127,6 @@ router.post('/free', auth, async (req, res) => {
   try {
     let { fixtureId, homeTeam, awayTeam } = req.body;
 
-    // Accept either numeric id, object { id, name }, or nested fixture object
     if (!homeTeam && req.body.fixture) {
       const f = req.body.fixture;
       homeTeam = f?.home?.id ?? homeTeam;
@@ -147,21 +154,17 @@ router.post('/free', auth, async (req, res) => {
       return res.status(403).json({ error: 'Free prediction already used this week' });
     }
 
-    // Get stats
     const stats = await fetchStats(homeTeam, awayTeam);
     console.log('Stats being sent to OpenAI:', JSON.stringify(stats, null, 2));
 
-    // Build a compact prompt (reduce tokens)
     const prompt = [
       `You are a football analyst. Provide a concise prediction in bullet points (score and reasoning).`,
       `Home team ID: ${homeTeam}`,
       `Away team ID: ${awayTeam}`,
       `Use H2H only to mention the last time they played; focus primarily on recent form, goals scored/conceded, and team stats.`,
-      `Stats: ${JSON.stringify(stats)}`,
-      `Note: The recent form arrays are ordered from most recent match to oldest.`
+      `Stats: ${JSON.stringify(stats)}`
     ].join('\n');
 
-    // Call OpenAI (watch for quota/rate limits)
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
