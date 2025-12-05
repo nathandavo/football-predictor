@@ -3,55 +3,53 @@ const router = express.Router();
 const auth = require('../middleware/auth');
 const OpenAI = require('openai');
 const User = require('../models/User');
-const fetch = require('node-fetch'); // make sure to install node-fetch
+const fetch = require('node-fetch');
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Helper to get current Premier League gameweek (1–38)
+// Get current PL gameweek
 function getGameWeek() {
-  const seasonStart = new Date('2025-08-01'); // adjust each season
+  const seasonStart = new Date('2025-08-01');
   const today = new Date();
   const diff = Math.floor((today - seasonStart) / (1000 * 60 * 60 * 24));
   return Math.max(1, Math.min(38, Math.ceil(diff / 7)));
 }
 
-// Function to fetch H2H, goals scored/conceded, recent form, wins/draws/losses, clean sheets, failed to score
+// Fetch stats from API-Football
 async function fetchStats(homeTeamId, awayTeamId) {
   try {
     const headers = {
-      'x-apisports-key': process.env.API_FOOTBALL_KEY,
+      'x-apisports-key': process.env.API_FOOTBALL_KEY   // ← CORRECT HEADER FOR API-FOOTBALL WEBSITE
     };
 
-    const league = 39;  // Premier League
+    const league = 39;
     const season = 2025;
 
-    // 1️⃣ Head-to-Head
+    // Head-to-Head
     const h2hRes = await fetch(
       `https://v3.football.api-sports.io/fixtures/headtohead?h2h=${homeTeamId}-${awayTeamId}`,
       { headers }
     );
     const h2hData = await h2hRes.json();
 
-    // 2️⃣ Home Team Stats
+    // Home Stats
     const homeRes = await fetch(
       `https://v3.football.api-sports.io/teams/statistics?league=${league}&season=${season}&team=${homeTeamId}`,
       { headers }
     );
     const homeData = await homeRes.json();
 
-    // 3️⃣ Away Team Stats
+    // Away Stats
     const awayRes = await fetch(
       `https://v3.football.api-sports.io/teams/statistics?league=${league}&season=${season}&team=${awayTeamId}`,
       { headers }
     );
     const awayData = await awayRes.json();
 
-    // Helper to parse recent form → "WWDLW"
     const parseForm = (formString) => formString ? formString.split('') : [];
 
     return {
       h2h: h2hData.response || [],
-
       homeStats: {
         goalsScored: homeData.response?.goals?.for?.total?.total ?? 0,
         goalsConceded: homeData.response?.goals?.against?.total?.total ?? 0,
@@ -59,10 +57,7 @@ async function fetchStats(homeTeamId, awayTeamId) {
         wins: homeData.response?.fixtures?.wins?.total ?? 0,
         draws: homeData.response?.fixtures?.draws?.total ?? 0,
         losses: homeData.response?.fixtures?.loses?.total ?? 0,
-        cleanSheets: homeData.response?.clean_sheet?.total ?? 0,
-        failedToScore: homeData.response?.failed_to_score?.total ?? 0,
       },
-
       awayStats: {
         goalsScored: awayData.response?.goals?.for?.total?.total ?? 0,
         goalsConceded: awayData.response?.goals?.against?.total?.total ?? 0,
@@ -70,8 +65,6 @@ async function fetchStats(homeTeamId, awayTeamId) {
         wins: awayData.response?.fixtures?.wins?.total ?? 0,
         draws: awayData.response?.fixtures?.draws?.total ?? 0,
         losses: awayData.response?.fixtures?.loses?.total ?? 0,
-        cleanSheets: awayData.response?.clean_sheet?.total ?? 0,
-        failedToScore: awayData.response?.failed_to_score?.total ?? 0,
       },
     };
 
@@ -79,13 +72,13 @@ async function fetchStats(homeTeamId, awayTeamId) {
     console.log("Error fetching stats:", err);
     return {
       h2h: [],
-      homeStats: { goalsScored: 0, goalsConceded: 0, recentForm: [], wins: 0, draws: 0, losses: 0, cleanSheets: 0, failedToScore: 0 },
-      awayStats: { goalsScored: 0, goalsConceded: 0, recentForm: [], wins: 0, draws: 0, losses: 0, cleanSheets: 0, failedToScore: 0 },
+      homeStats: { goalsScored: 0, goalsConceded: 0, recentForm: [], wins: 0, draws: 0, losses: 0 },
+      awayStats: { goalsScored: 0, goalsConceded: 0, recentForm: [], wins: 0, draws: 0, losses: 0 },
     };
   }
 }
 
-// ----- FREE WEEKLY PREDICTION -----
+// FREE WEEKLY PREDICTION
 router.post('/free', auth, async (req, res) => {
   try {
     let { fixtureId, homeTeam, awayTeam } = req.body;
@@ -95,9 +88,9 @@ router.post('/free', auth, async (req, res) => {
 
     const gameweek = `GW${getGameWeek()}`;
 
-    if (!req.user || !req.user.id) {
+    if (!req.user || !req.user.id)
       return res.status(401).json({ error: 'Unauthorized: user missing' });
-    }
+
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
@@ -105,17 +98,15 @@ router.post('/free', auth, async (req, res) => {
       return res.status(403).json({ error: 'Free prediction already used this week' });
     }
 
-    // Fetch stats from Football API
     const stats = await fetchStats(homeTeam, awayTeam);
     console.log("Stats being sent to OpenAI:", stats);
 
-    // Call OpenAI to generate prediction
     const prompt = `
       Predict the outcome of the football match:
       Home Team: ${homeTeam}
       Away Team: ${awayTeam}
       Stats: ${JSON.stringify(stats)}
-      Include likely score and a brief reasoning in 3 sentences.
+      Include likely score and brief reasoning (3 sentences max).
     `;
 
     const completion = await openai.chat.completions.create({
@@ -134,6 +125,7 @@ router.post('/free', auth, async (req, res) => {
     }
 
     res.json({ prediction });
+
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Prediction failed' });
