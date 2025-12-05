@@ -154,12 +154,13 @@ router.post('/free', auth, async (req, res) => {
     console.log('Stats being sent to OpenAI:', JSON.stringify(stats, null, 2));
 
     // Build a compact prompt (reduce tokens)
-    const prompt = [
-      `You are a football analyst. Provide a concise prediction providing stats in bullet points (score and reasoning).`,
-      `Home team ID: ${homeTeam}`,
-      `Away team ID: ${awayTeam}`,
-      `Stats: ${JSON.stringify(stats)}`
-    ].join('\n');
+const prompt = [
+  `You are a football analyst. Provide a concise prediction in bullet points (score and reasoning).`,
+  `Home team ID: ${homeTeam}`,
+  `Away team ID: ${awayTeam}`,
+  `Use H2H only to mention the last time they played; focus primarily on recent form, goals scored/conceded, and team stats.`,
+  `Stats: ${JSON.stringify(stats)}`
+].join('\n');
 
     // Call OpenAI (watch for quota/rate limits)
     const completion = await openai.chat.completions.create({
@@ -192,5 +193,6 @@ router.post('/free', auth, async (req, res) => {
 });
 
 module.exports = router;
+
 
 
