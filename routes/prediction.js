@@ -1,4 +1,3 @@
-// routes/prediction.js
 const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth'); // fixed middleware
@@ -41,18 +40,19 @@ async function fetchStats(homeTeamId, awayTeamId) {
       );
       const data = await res.json().catch(() => ({}));
       if (!data.response) return [];
-      return data.response.map(match => {
-        if (match.teams.home.id === teamId) {
-          if (match.goals.home > match.goals.away) return "W";
-          if (match.goals.home < match.goals.away) return "L";
-          return "D";
-        } else {
-          if (match.goals.away > match.goals.home) return "W";
-          if (match.goals.away < match.goals.home) return "L";
-          return "D";
-        }
-      });
-      .reverse();
+      return data.response
+        .map(match => {
+          if (match.teams.home.id === teamId) {
+            if (match.goals.home > match.goals.away) return "W";
+            if (match.goals.home < match.goals.away) return "L";
+            return "D";
+          } else {
+            if (match.goals.away > match.goals.home) return "W";
+            if (match.goals.away < match.goals.home) return "L";
+            return "D";
+          }
+        })
+        .reverse(); // ✅ fixed: remove semicolon before .reverse()
     };
 
     // H2H for completeness
@@ -121,7 +121,6 @@ router.post('/free', auth, async (req, res) => {
 
     // Accept either numeric id, object { id, name }, or nested fixture object
     if (!homeTeam && req.body.fixture) {
-      // support full fixture object payload e.g. { fixture: { home: { id } , away: { id } } }
       const f = req.body.fixture;
       homeTeam = f?.home?.id ?? homeTeam;
       awayTeam = f?.away?.id ?? awayTeam;
@@ -131,7 +130,6 @@ router.post('/free', auth, async (req, res) => {
     if (homeTeam?.id) homeTeam = homeTeam.id;
     if (awayTeam?.id) awayTeam = awayTeam.id;
 
-    // now ensure numeric
     if (!homeTeam || !awayTeam) {
       return res.status(400).json({ error: 'homeTeam and awayTeam IDs required' });
     }
@@ -145,25 +143,21 @@ router.post('/free', auth, async (req, res) => {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    // freePredictions is an object in your model — check property
     if (!user.isPremium && user.freePredictions && user.freePredictions[gameweek]) {
       return res.status(403).json({ error: 'Free prediction already used this week' });
     }
 
-    // Get stats
     const stats = await fetchStats(homeTeam, awayTeam);
     console.log('Stats being sent to OpenAI:', JSON.stringify(stats, null, 2));
 
-    // Build a compact prompt (reduce tokens)
-const prompt = [
-  `You are a football analyst. Provide a concise prediction in bullet points (score and reasoning).`,
-  `Home team ID: ${homeTeam}`,
-  `Away team ID: ${awayTeam}`,
-  `Use H2H only to mention the last time they played; focus primarily on recent form, goals scored/conceded, and team stats.`,
-  `Stats: ${JSON.stringify(stats)}`
-].join('\n');
+    const prompt = [
+      `You are a football analyst. Provide a concise prediction in bullet points (score and reasoning).`,
+      `Home team ID: ${homeTeam}`,
+      `Away team ID: ${awayTeam}`,
+      `Use H2H only to mention the last time they played; focus primarily on recent form, goals scored/conceded, and team stats.`,
+      `Stats: ${JSON.stringify(stats)}`
+    ].join('\n');
 
-    // Call OpenAI (watch for quota/rate limits)
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
@@ -175,7 +169,6 @@ const prompt = [
 
     const prediction = completion.choices?.[0]?.message?.content ?? 'No prediction returned';
 
-    // Mark free used (object)
     if (!user.isPremium) {
       user.freePredictions = user.freePredictions || {};
       user.freePredictions[gameweek] = true;
@@ -185,7 +178,6 @@ const prompt = [
     res.json({ prediction, stats });
   } catch (err) {
     console.error('Prediction route error:', err);
-    // if the OpenAI client returned structured error, forward a short helpful message
     if (err?.status === 429) {
       return res.status(429).json({ error: 'OpenAI quota/rate limit. Check your API key and quota.' });
     }
@@ -194,7 +186,3 @@ const prompt = [
 });
 
 module.exports = router;
-
-
-
-
