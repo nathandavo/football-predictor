@@ -1,3 +1,4 @@
+// routes/prediction.js
 const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth'); // fixed middleware
@@ -40,19 +41,18 @@ async function fetchStats(homeTeamId, awayTeamId) {
       );
       const data = await res.json().catch(() => ({}));
       if (!data.response) return [];
-      return data.response
-        .map(match => {
-          if (match.teams.home.id === teamId) {
-            if (match.goals.home > match.goals.away) return "W";
-            if (match.goals.home < match.goals.away) return "L";
-            return "D";
-          } else {
-            if (match.goals.away > match.goals.home) return "W";
-            if (match.goals.away < match.goals.home) return "L";
-            return "D";
-          }
-        })
-        .reverse(); // ✅ fixed: remove semicolon before .reverse()
+      // Map results
+      return data.response.map(match => {
+        if (match.teams.home.id === teamId) {
+          if (match.goals.home > match.goals.away) return "W";
+          if (match.goals.home < match.goals.away) return "L";
+          return "D";
+        } else {
+          if (match.goals.away > match.goals.home) return "W";
+          if (match.goals.away < match.goals.home) return "L";
+          return "D";
+        }
+      }).reverse(); // Reverse to make most recent match first
     };
 
     // H2H for completeness
@@ -147,17 +147,21 @@ router.post('/free', auth, async (req, res) => {
       return res.status(403).json({ error: 'Free prediction already used this week' });
     }
 
+    // Get stats
     const stats = await fetchStats(homeTeam, awayTeam);
     console.log('Stats being sent to OpenAI:', JSON.stringify(stats, null, 2));
 
+    // Build a compact prompt (reduce tokens)
     const prompt = [
       `You are a football analyst. Provide a concise prediction in bullet points (score and reasoning).`,
       `Home team ID: ${homeTeam}`,
       `Away team ID: ${awayTeam}`,
       `Use H2H only to mention the last time they played; focus primarily on recent form, goals scored/conceded, and team stats.`,
-      `Stats: ${JSON.stringify(stats)}`
+      `Stats: ${JSON.stringify(stats)}`,
+      `Note: The recent form arrays are ordered from most recent match to oldest.`
     ].join('\n');
 
+    // Call OpenAI (watch for quota/rate limits)
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
