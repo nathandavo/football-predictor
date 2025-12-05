@@ -40,18 +40,20 @@ async function fetchStats(homeTeamId, awayTeamId) {
       );
       const data = await res.json().catch(() => ({}));
       if (!data.response) return [];
-      // Map results and reverse to make most recent first
-      return data.response.map(match => {
-        if (match.teams.home.id === teamId) {
-          if (match.goals.home > match.goals.away) return "W";
-          if (match.goals.home < match.goals.away) return "L";
-          return "D";
-        } else {
-          if (match.goals.away > match.goals.home) return "W";
-          if (match.goals.away < match.goals.home) return "L";
-          return "D";
-        }
-      }).reverse(); // Fix: most recent game first
+      // Map results, most recent match first
+      return data.response
+        .reverse() // fix: reverse here first
+        .map(match => {
+          if (match.teams.home.id === teamId) {
+            if (match.goals.home > match.goals.away) return "W";
+            if (match.goals.home < match.goals.away) return "L";
+            return "D";
+          } else {
+            if (match.goals.away > match.goals.home) return "W";
+            if (match.goals.away < match.goals.home) return "L";
+            return "D";
+          }
+        });
     };
 
     // H2H for completeness
@@ -65,7 +67,7 @@ async function fetchStats(homeTeamId, awayTeamId) {
       getRecentForm(awayTeamId)
     ]);
 
-    // Optionally, fetch overall stats for goals/wins/draws if needed (season-specific)
+    // Fetch overall stats for goals/wins/draws if needed (season-specific)
     const [homeStatsRes, awayStatsRes] = await Promise.all([
       fetch(`https://v3.football.api-sports.io/teams/statistics?league=${league}&season=2025&team=${homeTeamId}`, { headers }),
       fetch(`https://v3.football.api-sports.io/teams/statistics?league=${league}&season=2025&team=${awayTeamId}`, { headers }),
@@ -122,7 +124,6 @@ router.post('/free', auth, async (req, res) => {
   try {
     let { fixtureId, homeTeam, awayTeam } = req.body;
 
-    // Accept either numeric id, object { id, name }, or nested fixture object
     if (!homeTeam && req.body.fixture) {
       const f = req.body.fixture;
       homeTeam = f?.home?.id ?? homeTeam;
@@ -154,7 +155,6 @@ router.post('/free', auth, async (req, res) => {
     const stats = await fetchStats(homeTeam, awayTeam);
     console.log('Stats being sent to OpenAI:', JSON.stringify(stats, null, 2));
 
-    // Build a compact prompt (reduce tokens)
     const prompt = [
       `You are a football analyst. Provide a concise prediction in bullet points (score and reasoning).`,
       `Home team: ${stats.homeStats.name} (ID: ${homeTeam})`,
@@ -163,7 +163,6 @@ router.post('/free', auth, async (req, res) => {
       `Stats: ${JSON.stringify(stats)}`
     ].join('\n');
 
-    // Call OpenAI (watch for quota/rate limits)
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
@@ -175,7 +174,6 @@ router.post('/free', auth, async (req, res) => {
 
     const prediction = completion.choices?.[0]?.message?.content ?? 'No prediction returned';
 
-    // Mark free used (object)
     if (!user.isPremium) {
       user.freePredictions = user.freePredictions || {};
       user.freePredictions[gameweek] = true;
