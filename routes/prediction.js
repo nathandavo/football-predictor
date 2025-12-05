@@ -133,7 +133,7 @@ router.post('/free', auth, async (req, res) => {
 
     // Build a compact prompt (reduce tokens)
     const prompt = [
-      `You are a football analyst. Provide a concise prediction (score and 1-2 lines reasoning).`,
+      `You are a football analyst. Provide a concise prediction providing stats in bullet points (score and reasoning).`,
       `Home team ID: ${homeTeam}`,
       `Away team ID: ${awayTeam}`,
       `Stats: ${JSON.stringify(stats)}`
@@ -170,3 +170,4 @@ router.post('/free', auth, async (req, res) => {
 });
 
 module.exports = router;
+
