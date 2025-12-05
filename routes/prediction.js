@@ -29,27 +29,48 @@ async function fetchStats(homeTeamId, awayTeamId) {
       return { h2h: [], homeStats: {}, awayStats: {} };
     }
 
-    const headers = {
-      'x-apisports-key': key,
-      // Host header unnecessary for this client, but api site uses the domain
-    };
+    const headers = { 'x-apisports-key': key };
 
     const league = 39;  // Premier League
-    const season = 2025;
 
-    // 1) H2H
+    // Helper to get last 5 matches form for a team
+    const getRecentForm = async (teamId) => {
+      const res = await fetch(
+        `https://v3.football.api-sports.io/fixtures?team=${teamId}&league=${league}&last=5`,
+        { headers }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!data.response) return [];
+      return data.response.map(match => {
+        if (match.teams.home.id === teamId) {
+          if (match.goals.home > match.goals.away) return "W";
+          if (match.goals.home < match.goals.away) return "L";
+          return "D";
+        } else {
+          if (match.goals.away > match.goals.home) return "W";
+          if (match.goals.away < match.goals.home) return "L";
+          return "D";
+        }
+      });
+    };
+
+    // H2H for completeness
     const h2hUrl = `https://v3.football.api-sports.io/fixtures/headtohead?h2h=${homeTeamId}-${awayTeamId}`;
-    const [h2hRes, homeRes, awayRes] = await Promise.all([
-      fetch(h2hUrl, { headers }),
-      fetch(`https://v3.football.api-sports.io/teams/statistics?league=${league}&season=${season}&team=${homeTeamId}`, { headers }),
-      fetch(`https://v3.football.api-sports.io/teams/statistics?league=${league}&season=${season}&team=${awayTeamId}`, { headers }),
+    const h2hRes = await fetch(h2hUrl, { headers });
+    const h2hData = await h2hRes.json().catch(() => ({}));
+
+    // Last 5 matches form for each team
+    const [homeForm, awayForm] = await Promise.all([
+      getRecentForm(homeTeamId),
+      getRecentForm(awayTeamId)
     ]);
 
-    const h2hData = await h2hRes.json().catch(() => ({}));
-    const homeData = await homeRes.json().catch(() => ({}));
-    const awayData = await awayRes.json().catch(() => ({}));
+    // Optionally, fetch overall stats for goals/wins/draws if needed (season-specific)
+    const [homeStatsRes, awayStatsRes] = await Promise.all([
+      fetch(`https://v3.football.api-sports.io/teams/statistics?league=${league}&season=2025&team=${homeTeamId}`, { headers }),
+      fetch(`https://v3.football.api-sports.io/teams/statistics?league=${league}&season=2025&team=${awayTeamId}`, { headers }),
+    ]);
 
-    // helper to safely read nested fields
     const safe = (obj, path, fallback = null) => {
       try {
         return path.split('.').reduce((a, b) => (a && a[b] !== undefined ? a[b] : undefined), obj) ?? fallback;
@@ -58,14 +79,15 @@ async function fetchStats(homeTeamId, awayTeamId) {
       }
     };
 
-    const parseForm = (formString) => (formString ? formString.split('') : []);
+    const homeData = await homeStatsRes.json().catch(() => ({}));
+    const awayData = await awayStatsRes.json().catch(() => ({}));
 
     const stats = {
       h2h: safe(h2hData, 'response', []),
       homeStats: {
         goalsScored: safe(homeData, 'response.goals.for.total.total', 0),
         goalsConceded: safe(homeData, 'response.goals.against.total.total', 0),
-        recentForm: parseForm(safe(homeData, 'response.form', '')),
+        recentForm: homeForm,
         wins: safe(homeData, 'response.fixtures.wins.total', 0),
         draws: safe(homeData, 'response.fixtures.draws.total', 0),
         losses: safe(homeData, 'response.fixtures.loses.total', 0),
@@ -73,7 +95,7 @@ async function fetchStats(homeTeamId, awayTeamId) {
       awayStats: {
         goalsScored: safe(awayData, 'response.goals.for.total.total', 0),
         goalsConceded: safe(awayData, 'response.goals.against.total.total', 0),
-        recentForm: parseForm(safe(awayData, 'response.form', '')),
+        recentForm: awayForm,
         wins: safe(awayData, 'response.fixtures.wins.total', 0),
         draws: safe(awayData, 'response.fixtures.draws.total', 0),
         losses: safe(awayData, 'response.fixtures.loses.total', 0),
@@ -170,4 +192,5 @@ router.post('/free', auth, async (req, res) => {
 });
 
 module.exports = router;
+
 
