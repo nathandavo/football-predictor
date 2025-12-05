@@ -1,75 +1,88 @@
+// routes/prediction.js
 const express = require('express');
 const router = express.Router();
-const auth = require('../middleware/auth');
+const auth = require('../middleware/auth'); // fixed middleware
 const OpenAI = require('openai');
 const User = require('../models/User');
-const fetch = require('node-fetch');
+const fetch = require('node-fetch'); // ensure installed: npm i node-fetch@2
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Get current PL gameweek
+// Helper to get current Premier League gameweek (1–38)
 function getGameWeek() {
-  const seasonStart = new Date('2025-08-01');
+  const seasonStart = new Date('2025-08-01'); // adjust each season if needed
   const today = new Date();
   const diff = Math.floor((today - seasonStart) / (1000 * 60 * 60 * 24));
   return Math.max(1, Math.min(38, Math.ceil(diff / 7)));
 }
 
-// Fetch stats from API-Football
+/**
+ * Fetch stats from API-Football v3 (api-sports).
+ * Uses env var: process.env.FOOTBALL_API_KEY
+ * Returns a compact stats object.
+ */
 async function fetchStats(homeTeamId, awayTeamId) {
   try {
+    const key = process.env.FOOTBALL_API_KEY;
+    if (!key) {
+      console.log('No FOOTBALL_API_KEY found in env');
+      return { h2h: [], homeStats: {}, awayStats: {} };
+    }
+
     const headers = {
-      'x-apisports-key': process.env.API_FOOTBALL_KEY   // ← CORRECT HEADER FOR API-FOOTBALL WEBSITE
+      'x-apisports-key': key,
+      // Host header unnecessary for this client, but api site uses the domain
     };
 
-    const league = 39;
+    const league = 39;  // Premier League
     const season = 2025;
 
-    // Head-to-Head
-    const h2hRes = await fetch(
-      `https://v3.football.api-sports.io/fixtures/headtohead?h2h=${homeTeamId}-${awayTeamId}`,
-      { headers }
-    );
-    const h2hData = await h2hRes.json();
+    // 1) H2H
+    const h2hUrl = `https://v3.football.api-sports.io/fixtures/headtohead?h2h=${homeTeamId}-${awayTeamId}`;
+    const [h2hRes, homeRes, awayRes] = await Promise.all([
+      fetch(h2hUrl, { headers }),
+      fetch(`https://v3.football.api-sports.io/teams/statistics?league=${league}&season=${season}&team=${homeTeamId}`, { headers }),
+      fetch(`https://v3.football.api-sports.io/teams/statistics?league=${league}&season=${season}&team=${awayTeamId}`, { headers }),
+    ]);
 
-    // Home Stats
-    const homeRes = await fetch(
-      `https://v3.football.api-sports.io/teams/statistics?league=${league}&season=${season}&team=${homeTeamId}`,
-      { headers }
-    );
-    const homeData = await homeRes.json();
+    const h2hData = await h2hRes.json().catch(() => ({}));
+    const homeData = await homeRes.json().catch(() => ({}));
+    const awayData = await awayRes.json().catch(() => ({}));
 
-    // Away Stats
-    const awayRes = await fetch(
-      `https://v3.football.api-sports.io/teams/statistics?league=${league}&season=${season}&team=${awayTeamId}`,
-      { headers }
-    );
-    const awayData = await awayRes.json();
+    // helper to safely read nested fields
+    const safe = (obj, path, fallback = null) => {
+      try {
+        return path.split('.').reduce((a, b) => (a && a[b] !== undefined ? a[b] : undefined), obj) ?? fallback;
+      } catch {
+        return fallback;
+      }
+    };
 
-    const parseForm = (formString) => formString ? formString.split('') : [];
+    const parseForm = (formString) => (formString ? formString.split('') : []);
 
-    return {
-      h2h: h2hData.response || [],
+    const stats = {
+      h2h: safe(h2hData, 'response', []),
       homeStats: {
-        goalsScored: homeData.response?.goals?.for?.total?.total ?? 0,
-        goalsConceded: homeData.response?.goals?.against?.total?.total ?? 0,
-        recentForm: parseForm(homeData.response?.form),
-        wins: homeData.response?.fixtures?.wins?.total ?? 0,
-        draws: homeData.response?.fixtures?.draws?.total ?? 0,
-        losses: homeData.response?.fixtures?.loses?.total ?? 0,
+        goalsScored: safe(homeData, 'response.goals.for.total.total', 0),
+        goalsConceded: safe(homeData, 'response.goals.against.total.total', 0),
+        recentForm: parseForm(safe(homeData, 'response.form', '')),
+        wins: safe(homeData, 'response.fixtures.wins.total', 0),
+        draws: safe(homeData, 'response.fixtures.draws.total', 0),
+        losses: safe(homeData, 'response.fixtures.loses.total', 0),
       },
       awayStats: {
-        goalsScored: awayData.response?.goals?.for?.total?.total ?? 0,
-        goalsConceded: awayData.response?.goals?.against?.total?.total ?? 0,
-        recentForm: parseForm(awayData.response?.form),
-        wins: awayData.response?.fixtures?.wins?.total ?? 0,
-        draws: awayData.response?.fixtures?.draws?.total ?? 0,
-        losses: awayData.response?.fixtures?.loses?.total ?? 0,
+        goalsScored: safe(awayData, 'response.goals.for.total.total', 0),
+        goalsConceded: safe(awayData, 'response.goals.against.total.total', 0),
+        recentForm: parseForm(safe(awayData, 'response.form', '')),
+        wins: safe(awayData, 'response.fixtures.wins.total', 0),
+        draws: safe(awayData, 'response.fixtures.draws.total', 0),
+        losses: safe(awayData, 'response.fixtures.loses.total', 0),
       },
     };
 
+    return stats;
   } catch (err) {
-    console.log("Error fetching stats:", err);
+    console.log('Error fetching stats:', err);
     return {
       h2h: [],
       homeStats: { goalsScored: 0, goalsConceded: 0, recentForm: [], wins: 0, draws: 0, losses: 0 },
@@ -78,56 +91,80 @@ async function fetchStats(homeTeamId, awayTeamId) {
   }
 }
 
-// FREE WEEKLY PREDICTION
+// ----- FREE WEEKLY PREDICTION -----
 router.post('/free', auth, async (req, res) => {
   try {
     let { fixtureId, homeTeam, awayTeam } = req.body;
 
+    // Accept either numeric id, object { id, name }, or nested fixture object
+    if (!homeTeam && req.body.fixture) {
+      // support full fixture object payload e.g. { fixture: { home: { id } , away: { id } } }
+      const f = req.body.fixture;
+      homeTeam = f?.home?.id ?? homeTeam;
+      awayTeam = f?.away?.id ?? awayTeam;
+      fixtureId = fixtureId ?? f?.id;
+    }
+
     if (homeTeam?.id) homeTeam = homeTeam.id;
     if (awayTeam?.id) awayTeam = awayTeam.id;
 
+    // now ensure numeric
+    if (!homeTeam || !awayTeam) {
+      return res.status(400).json({ error: 'homeTeam and awayTeam IDs required' });
+    }
+
     const gameweek = `GW${getGameWeek()}`;
 
-    if (!req.user || !req.user.id)
+    if (!req.user || !req.user.id) {
       return res.status(401).json({ error: 'Unauthorized: user missing' });
+    }
 
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    if (!user.isPremium && user.freePredictions[gameweek]) {
+    // freePredictions is an object in your model — check property
+    if (!user.isPremium && user.freePredictions && user.freePredictions[gameweek]) {
       return res.status(403).json({ error: 'Free prediction already used this week' });
     }
 
+    // Get stats
     const stats = await fetchStats(homeTeam, awayTeam);
-    console.log("Stats being sent to OpenAI:", stats);
+    console.log('Stats being sent to OpenAI:', JSON.stringify(stats, null, 2));
 
-    const prompt = `
-      Predict the outcome of the football match:
-      Home Team: ${homeTeam}
-      Away Team: ${awayTeam}
-      Stats: ${JSON.stringify(stats)}
-      Include likely score and brief reasoning (3 sentences max).
-    `;
+    // Build a compact prompt (reduce tokens)
+    const prompt = [
+      `You are a football analyst. Provide a concise prediction (score and 1-2 lines reasoning).`,
+      `Home team ID: ${homeTeam}`,
+      `Away team ID: ${awayTeam}`,
+      `Stats: ${JSON.stringify(stats)}`
+    ].join('\n');
 
+    // Call OpenAI (watch for quota/rate limits)
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
         { role: 'system', content: 'You are a football analyst.' },
         { role: 'user', content: prompt }
       ],
+      max_tokens: 300,
     });
 
-    const prediction = completion.choices[0].message.content;
+    const prediction = completion.choices?.[0]?.message?.content ?? 'No prediction returned';
 
+    // Mark free used (object)
     if (!user.isPremium) {
+      user.freePredictions = user.freePredictions || {};
       user.freePredictions[gameweek] = true;
       await user.save();
     }
 
-    res.json({ prediction });
-
+    res.json({ prediction, stats });
   } catch (err) {
-    console.error(err);
+    console.error('Prediction route error:', err);
+    // if the OpenAI client returned structured error, forward a short helpful message
+    if (err?.status === 429) {
+      return res.status(429).json({ error: 'OpenAI quota/rate limit. Check your API key and quota.' });
+    }
     res.status(500).json({ error: 'Prediction failed' });
   }
 });
