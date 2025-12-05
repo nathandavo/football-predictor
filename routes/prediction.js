@@ -16,11 +16,6 @@ function getGameWeek() {
   return Math.max(1, Math.min(38, Math.ceil(diff / 7)));
 }
 
-/**
- * Fetch stats from API-Football v3 (api-sports).
- * Uses env var: process.env.FOOTBALL_API_KEY
- * Returns a compact stats object.
- */
 async function fetchStats(homeTeamId, awayTeamId) {
   try {
     const key = process.env.FOOTBALL_API_KEY;
@@ -41,8 +36,10 @@ async function fetchStats(homeTeamId, awayTeamId) {
       const data = await res.json().catch(() => ({}));
       if (!data.response) return [];
 
-      // Sort by date ascending (oldest first) to ensure chronological order
-      const sortedMatches = data.response.sort((a, b) => new Date(a.fixture.date) - new Date(b.fixture.date));
+      // Sort by date ascending (oldest first)
+      const sortedMatches = data.response.sort(
+        (a, b) => new Date(a.fixture.date) - new Date(b.fixture.date)
+      );
 
       // Map results: "W", "D", "L"
       return sortedMatches.map(match => {
@@ -62,6 +59,10 @@ async function fetchStats(homeTeamId, awayTeamId) {
     const h2hUrl = `https://v3.football.api-sports.io/fixtures/headtohead?h2h=${homeTeamId}-${awayTeamId}`;
     const h2hRes = await fetch(h2hUrl, { headers });
     const h2hData = await h2hRes.json().catch(() => ({}));
+
+    // Take only the last H2H match
+    const h2hArray = h2hData?.response ?? [];
+    const lastH2H = h2hArray.length > 0 ? [h2hArray[0]] : []; // 🔹 only the most recent
 
     // Last 5 matches form for each team
     const [homeForm, awayForm] = await Promise.all([
@@ -87,7 +88,7 @@ async function fetchStats(homeTeamId, awayTeamId) {
     const awayData = await awayStatsRes.json().catch(() => ({}));
 
     const stats = {
-      h2h: safe(h2hData, 'response', []),
+      h2h: lastH2H,  // 🔹 only 1 game now
       homeStats: {
         id: homeTeamId,
         name: safe(homeData, 'response.team.name', 'Home Team'),
@@ -195,3 +196,4 @@ router.post('/free', auth, async (req, res) => {
 });
 
 module.exports = router;
+
