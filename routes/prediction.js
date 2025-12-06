@@ -18,7 +18,7 @@ function getGameWeek() {
 async function fetchStats(homeTeamId, awayTeamId) {
   try {
     const key = process.env.FOOTBALL_API_KEY;
-    if (!key) return { h2h: [], homeStats: {}, awayStats: {} };
+    if (!key) return { homeStats: {}, awayStats: {} };
 
     const headers = { 'x-apisports-key': key };
     const league = 39;
@@ -48,23 +48,14 @@ async function fetchStats(homeTeamId, awayTeamId) {
       });
     };
 
-    const h2hRes = await fetch(
-      `https://v3.football.api-sports.io/fixtures/headtohead?h2h=${homeTeamId}-${awayTeamId}`,
-      { headers }
-    );
-    const h2hData = await h2hRes.json().catch(() => ({}));
-    const h2hArray = h2hData?.response ?? [];
-    const lastH2H = h2hArray.length > 0 ? [h2hArray[0]] : [];
-
     const [homeForm, awayForm] = await Promise.all([
       getRecentForm(homeTeamId),
       getRecentForm(awayTeamId)
     ]);
 
     const safe = (obj, path, fallback = null) => {
-      try {
-        return path.split('.').reduce((a, b) => (a && a[b] !== undefined ? a[b] : undefined), obj) ?? fallback;
-      } catch { return fallback; }
+      try { return path.split('.').reduce((a,b) => (a && a[b] !== undefined ? a[b] : undefined), obj) ?? fallback; }
+      catch { return fallback; }
     };
 
     const homeStatsRes = await fetch(
@@ -80,7 +71,6 @@ async function fetchStats(homeTeamId, awayTeamId) {
     const awayData = await awayStatsRes.json().catch(() => ({}));
 
     return {
-      h2h: lastH2H,
       homeStats: {
         id: homeTeamId,
         name: safe(homeData, 'response.team.name', 'Home Team'),
@@ -99,7 +89,6 @@ async function fetchStats(homeTeamId, awayTeamId) {
   } catch (err) {
     console.log('Error fetching stats:', err);
     return {
-      h2h: [],
       homeStats: { id: null, name: 'Home', goalsScored: 0, goalsConceded: 0, recentForm: [] },
       awayStats: { id: null, name: 'Away', goalsScored: 0, goalsConceded: 0, recentForm: [] },
     };
@@ -121,11 +110,13 @@ router.post('/free', auth, async (req, res) => {
     if (homeTeam?.id) homeTeam = homeTeam.id;
     if (awayTeam?.id) awayTeam = awayTeam.id;
 
-    if (!homeTeam || !awayTeam) return res.status(400).json({ error: 'homeTeam and awayTeam IDs required' });
+    if (!homeTeam || !awayTeam)
+      return res.status(400).json({ error: 'homeTeam and awayTeam IDs required' });
 
     const gameweek = `GW${getGameWeek()}`;
 
-    if (!req.user || !req.user.id) return res.status(401).json({ error: 'Unauthorized: user missing' });
+    if (!req.user || !req.user.id)
+      return res.status(401).json({ error: 'Unauthorized: user missing' });
 
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
@@ -136,22 +127,44 @@ router.post('/free', auth, async (req, res) => {
 
     const stats = await fetchStats(homeTeam, awayTeam);
 
+    // --- Compute Win Probabilities ---
+    const homeForm = stats.homeStats.recentForm.slice(-5);
+    const awayForm = stats.awayStats.recentForm.slice(-5);
+
+    const calcProb = (wins, draws) => wins + draws * 0.5;
+    let homeScore = calcProb(homeForm.filter(f => f==="W").length, homeForm.filter(f=>"D").length);
+    let awayScore = calcProb(awayForm.filter(f => f==="W").length, awayForm.filter(f=>"D").length);
+    let drawScore = homeForm.filter(f=>"D").length + awayForm.filter(f=>"D").length;
+    let total = homeScore + awayScore + drawScore || 1;
+
+    let homePct = Math.round((homeScore/total)*100);
+    let awayPct = Math.round((awayScore/total)*100);
+    let drawPct = 100 - homePct - awayPct;
+    const minDraw = 20;
+    if(drawPct < minDraw){
+      const diff = minDraw - drawPct;
+      drawPct = minDraw;
+      const reduceHome = Math.round((homePct/(homePct+awayPct))*diff);
+      const reduceAway = diff - reduceHome;
+      homePct = Math.max(0,homePct-reduceHome);
+      awayPct = Math.max(0,awayPct-reduceAway);
+    }
+
+    // --- Compute BTTS Probability ---
+    const bttsPct = Math.min(
+      100,
+      Math.round(
+        ((stats.homeStats.goalsScored > 0 ? 1 : 0) + (stats.awayStats.goalsScored > 0 ? 1 : 0)) * 50
+      )
+    );
+
+    // --- Call OpenAI for score prediction and short explanation ---
     const prompt = [
-      `You are a football analyst. Provide a match prediction for the upcoming game.`,
-      `Use a single line of exactly 10 squares for Win Probability, BTTS, and Expected Goals.`,
-      `Divide the squares proportionally based on percentages. Example: Home 65% → 7 squares 🟩, Draw 20% → 2 squares 🟨, Away 15% → 1 square 🟥`,
-      `Display numbers below the bars.`,
-      `Provide a score prediction in format Home-Away (e.g., 2-1).`,
-      `Use only team names from stats: Home: ${stats.homeStats.name}, Away: ${stats.awayStats.name}.`,
-      `Do NOT include recent form (handled elsewhere).`,
-      `Output format example:
-Score Prediction: 2-1
-Win Probability: 🟩🟩🟩🟩🟩🟩🟩🟨🟨🟥
-               65% 20% 15%
-BTTS Probability: 🟩🟩🟩🟩🟩🟩🟩🟥🟥🟥
-                 70% 30%
-Expected Goals: 🟩🟩🟩🟩🟩🟩🟥🟥🟥🟥
-                 2.5 0.5`
+      `You are a football analyst.`,
+      `Provide a short, concise match prediction.`,
+      `Include predicted score (e.g., 2-1) and a short reasoning sentence,`,
+      `also mention the chance of both teams scoring (BTTS) as a percentage.`,
+      `Teams: Home - ${stats.homeStats.name}, Away - ${stats.awayStats.name}.`
     ].join('\n');
 
     const completion = await openai.chat.completions.create({
@@ -160,11 +173,11 @@ Expected Goals: 🟩🟩🟩🟩🟩🟩🟥🟥🟥🟥
         { role: 'system', content: 'You are a football analyst.' },
         { role: 'user', content: prompt }
       ],
-      max_tokens: 350,
-      temperature: 0.75,
+      max_tokens: 250,
+      temperature: 0.75
     });
 
-    const prediction = completion.choices?.[0]?.message?.content ?? 'No prediction returned';
+    const aiPrediction = completion.choices?.[0]?.message?.content ?? 'No prediction returned';
 
     if (!user.isPremium) {
       user.freePredictions = user.freePredictions || {};
@@ -172,10 +185,19 @@ Expected Goals: 🟩🟩🟩🟩🟩🟩🟥🟥🟥🟥
       await user.save();
     }
 
-    res.json({ prediction, stats });
+    // --- Send everything frontend expects ---
+    res.json({
+      prediction: aiPrediction,
+      stats,
+      winChances: { home: homePct, draw: drawPct, away: awayPct },
+      recentForm: { home: homeForm, away: awayForm },
+      bttsPct
+    });
+
   } catch (err) {
     console.error('Prediction route error:', err);
-    if (err?.status === 429) return res.status(429).json({ error: 'OpenAI quota/rate limit. Check your API key and quota.' });
+    if (err?.status === 429)
+      return res.status(429).json({ error: 'OpenAI quota/rate limit. Check your API key and quota.' });
     res.status(500).json({ error: 'Prediction failed' });
   }
 });
