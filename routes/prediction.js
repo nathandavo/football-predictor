@@ -8,7 +8,6 @@ const fetch = require('node-fetch');
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Helper to get current Premier League gameweek (1–38)
 function getGameWeek() {
   const seasonStart = new Date('2025-08-01');
   const today = new Date();
@@ -137,17 +136,22 @@ router.post('/free', auth, async (req, res) => {
 
     const stats = await fetchStats(homeTeam, awayTeam);
 
-    // Prompt for AI: produce single-line colored bars, score prediction, BTTS, Expected Goals
     const prompt = [
-      `You are a football analyst. Provide a concise match prediction for the upcoming game.`,
-      `Output format exactly as below (single-line colored bars, numbers underneath, no repeated recent form, include score prediction):`,
-      `Score Prediction: <homeGoals>-<awayGoals>`,
-      `Win Probability: single-line colored bar (🟩=Home, 🟨=Draw, 🟥=Away) with percentages below`,
-      `BTTS Probability: single-line colored bar (🟩=Yes, 🟥=No) with percentages below`,
-      `Expected Goals: single-line colored bar (🟩=Home, 🟥=Away) with values below`,
-      `Use team names from stats: Home: ${stats.homeStats.name}, Away: ${stats.awayStats.name}`,
-      `Use last 5-match form internally for reasoning but do NOT display`,
-      `Provide only the colored bars, numbers underneath, and short insight of the match outcome. Do NOT include separate recent form charts.`
+      `You are a football analyst. Provide a match prediction for the upcoming game.`,
+      `Use a single line of exactly 10 squares for Win Probability, BTTS, and Expected Goals.`,
+      `Divide the squares proportionally based on percentages. Example: Home 65% → 7 squares 🟩, Draw 20% → 2 squares 🟨, Away 15% → 1 square 🟥`,
+      `Display numbers below the bars.`,
+      `Provide a score prediction in format Home-Away (e.g., 2-1).`,
+      `Use only team names from stats: Home: ${stats.homeStats.name}, Away: ${stats.awayStats.name}.`,
+      `Do NOT include recent form (handled elsewhere).`,
+      `Output format example:
+Score Prediction: 2-1
+Win Probability: 🟩🟩🟩🟩🟩🟩🟩🟨🟨🟥
+               65% 20% 15%
+BTTS Probability: 🟩🟩🟩🟩🟩🟩🟩🟥🟥🟥
+                 70% 30%
+Expected Goals: 🟩🟩🟩🟩🟩🟩🟥🟥🟥🟥
+                 2.5 0.5`
     ].join('\n');
 
     const completion = await openai.chat.completions.create({
