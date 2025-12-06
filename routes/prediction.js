@@ -149,27 +149,20 @@ router.post('/free', auth, async (req, res) => {
     }
 
     const stats = await fetchStats(homeTeam, awayTeam);
-    console.log('Stats being sent to OpenAI:', JSON.stringify(stats, null, 2));
 
     // Random boldness (30% chance)
     const boldChance = Math.random() < 0.3;
+
+    // ✅ SAFE UPSSET / BOLD MODE (NO UI BREAKS)
     const boldInstruction = boldChance
-      ? "Occasionally phrase your prediction boldly if the stats support it. Use confident language like 'will dominate', 'likely to win convincingly', or 'high chance of scoring multiple goals'."
+      ? "Take slightly bolder positions when the stats support it. DO NOT change the response format. DO NOT add emojis, extra paragraphs, long lists, or unusual characters. Keep the exact same bullet-point style and tone."
       : "";
 
-    // ⭐ ADDED — Upset Detector (25% chance)
-    const upsetChance = Math.random() < 0.25;
-    const upsetInstruction = upsetChance
-      ? "Look specifically for a potential UPSET. Analyse whether the underdog has any statistical or situational advantages such as recent strong form, defensive improvements, opponent fatigue, missing key players, away disadvantage, or inconsistent play. If plausible, clearly state the upset scenario."
-      : "";
-
-    // Prompt
     const prompt = [
       `You are a football analyst. Provide a concise prediction in bullet points (score and reasoning).`,
       `Do NOT mention stadiums, grounds, or venue names.`,
       `Only mention: recent form, goals scored/conceded, team stats, home/away performance, and head-to-head.`,
       boldInstruction,
-      upsetInstruction, // ⭐ INSERTED HERE
       `Home team: ${stats.homeStats.name} (ID: ${homeTeam})`,
       `Away team: ${stats.awayStats.name} (ID: ${awayTeam})`,
       `Stats: ${JSON.stringify(stats)}`
