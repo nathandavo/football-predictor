@@ -1,15 +1,16 @@
 // routes/prediction.js
 const express = require('express');
 const router = express.Router();
-const auth = require('../middleware/auth');
+const auth = require('../middleware/auth'); // fixed middleware
 const OpenAI = require('openai');
 const User = require('../models/User');
-const fetch = require('node-fetch');
+const fetch = require('node-fetch'); // ensure installed: npm i node-fetch@2
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+// Helper to get current Premier League gameweek (1–38)
 function getGameWeek() {
-  const seasonStart = new Date('2025-08-01');
+  const seasonStart = new Date('2025-08-01'); // adjust each season if needed
   const today = new Date();
   const diff = Math.floor((today - seasonStart) / (1000 * 60 * 60 * 24));
   return Math.max(1, Math.min(38, Math.ceil(diff / 7)));
@@ -21,14 +22,19 @@ async function fetchStats(homeTeamId, awayTeamId) {
     if (!key) return { h2h: [], homeStats: {}, awayStats: {} };
 
     const headers = { 'x-apisports-key': key };
-    const league = 39;
+    const league = 39;  // Premier League
 
     const getRecentForm = async (teamId) => {
-      const res = await fetch(`https://v3.football.api-sports.io/fixtures?team=${teamId}&league=${league}&last=5`, { headers });
+      const res = await fetch(
+        `https://v3.football.api-sports.io/fixtures?team=${teamId}&league=${league}&last=5`,
+        { headers }
+      );
       const data = await res.json().catch(() => ({}));
       if (!data.response) return [];
 
-      const sortedMatches = data.response.sort((a, b) => new Date(a.fixture.date) - new Date(b.fixture.date));
+      const sortedMatches = data.response.sort(
+        (a, b) => new Date(a.fixture.date) - new Date(b.fixture.date)
+      );
 
       return sortedMatches.map(match => {
         if (match.teams.home.id === teamId) {
@@ -43,20 +49,16 @@ async function fetchStats(homeTeamId, awayTeamId) {
       });
     };
 
-    const h2hUrl = `https://v3.football.api-sports.io/fixtures/headtohead?h2h=${homeTeamId}-${awayTeamId}`;
-    const h2hRes = await fetch(h2hUrl, { headers });
+    const h2hRes = await fetch(`https://v3.football.api-sports.io/fixtures/headtohead?h2h=${homeTeamId}-${awayTeamId}`, { headers });
     const h2hData = await h2hRes.json().catch(() => ({}));
-
     const h2hArray = h2hData?.response ?? [];
-    h2hArray.sort((a, b) => new Date(b.fixture.date) - new Date(a.fixture.date));
     const lastH2H = h2hArray.length > 0 ? [h2hArray[0]] : [];
 
     const [homeForm, awayForm] = await Promise.all([getRecentForm(homeTeamId), getRecentForm(awayTeamId)]);
 
     const safe = (obj, path, fallback = null) => {
-      try {
-        return path.split('.').reduce((a, b) => (a && a[b] !== undefined ? a[b] : undefined), obj) ?? fallback;
-      } catch { return fallback; }
+      try { return path.split('.').reduce((a, b) => (a && a[b] !== undefined ? a[b] : undefined), obj) ?? fallback; } 
+      catch { return fallback; }
     };
 
     const [homeStatsRes, awayStatsRes] = await Promise.all([
@@ -72,15 +74,11 @@ async function fetchStats(homeTeamId, awayTeamId) {
       homeStats: {
         id: homeTeamId,
         name: safe(homeData, 'response.team.name', 'Home Team'),
-        goalsScored: safe(homeData, 'response.goals.for.total.total', 0),
-        goalsConceded: safe(homeData, 'response.goals.against.total.total', 0),
         recentForm: homeForm,
       },
       awayStats: {
         id: awayTeamId,
         name: safe(awayData, 'response.team.name', 'Away Team'),
-        goalsScored: safe(awayData, 'response.goals.for.total.total', 0),
-        goalsConceded: safe(awayData, 'response.goals.against.total.total', 0),
         recentForm: awayForm,
       },
     };
@@ -89,13 +87,14 @@ async function fetchStats(homeTeamId, awayTeamId) {
   } catch (err) {
     console.log('Error fetching stats:', err);
     return {
-      h2h: [],
-      homeStats: { id: null, name: 'Home', goalsScored: 0, goalsConceded: 0, recentForm: [] },
-      awayStats: { id: null, name: 'Away', goalsScored: 0, goalsConceded: 0, recentForm: [] },
+      h2h: [], 
+      homeStats: { id: null, name: 'Home', recentForm: [] },
+      awayStats: { id: null, name: 'Away', recentForm: [] },
     };
   }
 }
 
+// ----- FREE WEEKLY PREDICTION -----
 router.post('/free', auth, async (req, res) => {
   try {
     let { fixtureId, homeTeam, awayTeam } = req.body;
@@ -109,34 +108,24 @@ router.post('/free', auth, async (req, res) => {
 
     if (homeTeam?.id) homeTeam = homeTeam.id;
     if (awayTeam?.id) awayTeam = awayTeam.id;
-
     if (!homeTeam || !awayTeam) return res.status(400).json({ error: 'homeTeam and awayTeam IDs required' });
 
     const gameweek = `GW${getGameWeek()}`;
-
-    if (!req.user || !req.user.id) return res.status(401).json({ error: 'Unauthorized: user missing' });
+    if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized: user missing' });
 
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
-
-    if (!user.isPremium && user.freePredictions && user.freePredictions[gameweek])
-      return res.status(403).json({ error: 'Free prediction already used this week' });
+    if (!user.isPremium && user.freePredictions?.[gameweek]) return res.status(403).json({ error: 'Free prediction already used this week' });
 
     const stats = await fetchStats(homeTeam, awayTeam);
 
-    const boldChance = Math.random() < 0.3;
-    const boldInstruction = boldChance
-      ? "Include a bold short prediction if stats support an upset."
-      : "";
-
-    // ✅ New prompt for a single colored bar chart + minimal reasoning
     const prompt = [
-      `You are a football analyst. Create ONLY text-based charts for:`,
-      `1) Win Probability: One single bar divided proportionally and colored (Home=🟩, Draw=🟨, Away=🟥)`,
-      `2) Expected Goals: Single bar, same style (Home=🟩, Away=🟥)`,
-      `Include a short recent 5-match form summary for each team and 1–2 line insight on how form may affect the game.`,
-      `Do NOT use W/L/D letters in charts.`,
-      boldInstruction,
+      `You are a football analyst. Provide ONLY the following in text format:`,
+      `1) One-line colored bar charts for Win Probability, Expected Goals, and BTTS Probability with numbers underneath.`,
+      `2) Recent form as colored blocks (keep W/L/D but DO NOT include letters, just colors).`,
+      `3) Short insight of 1-2 sentences about form influence.`,
+      `4) Use actual team names from stats, no generic names.`,
+      `Do NOT exceed 300 words.`,
       `Home team: ${stats.homeStats.name}`,
       `Away team: ${stats.awayStats.name}`,
       `Stats: ${JSON.stringify(stats)}`
@@ -145,7 +134,7 @@ router.post('/free', auth, async (req, res) => {
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: 'You are a football analyst.' },
+        { role: 'system', content: 'You are a football analyst specialized in concise colored charts.' },
         { role: 'user', content: prompt }
       ],
       max_tokens: 400,
