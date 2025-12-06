@@ -36,12 +36,10 @@ async function fetchStats(homeTeamId, awayTeamId) {
       const data = await res.json().catch(() => ({}));
       if (!data.response) return [];
 
-      // Sort by date ascending (oldest first)
       const sortedMatches = data.response.sort(
         (a, b) => new Date(a.fixture.date) - new Date(b.fixture.date)
       );
 
-      // Map results: "W", "D", "L"
       return sortedMatches.map(match => {
         if (match.teams.home.id === teamId) {
           if (match.goals.home > match.goals.away) return "W";
@@ -55,22 +53,18 @@ async function fetchStats(homeTeamId, awayTeamId) {
       });
     };
 
-    // H2H for completeness
     const h2hUrl = `https://v3.football.api-sports.io/fixtures/headtohead?h2h=${homeTeamId}-${awayTeamId}`;
     const h2hRes = await fetch(h2hUrl, { headers });
     const h2hData = await h2hRes.json().catch(() => ({}));
 
-    // Take only the last H2H match
     const h2hArray = h2hData?.response ?? [];
-    const lastH2H = h2hArray.length > 0 ? [h2hArray[0]] : []; // 🔹 only the most recent
+    const lastH2H = h2hArray.length > 0 ? [h2hArray[0]] : [];
 
-    // Last 5 matches form for each team
     const [homeForm, awayForm] = await Promise.all([
       getRecentForm(homeTeamId),
       getRecentForm(awayTeamId)
     ]);
 
-    // Fetch overall stats for goals/wins/draws if needed (season-specific)
     const [homeStatsRes, awayStatsRes] = await Promise.all([
       fetch(`https://v3.football.api-sports.io/teams/statistics?league=${league}&season=2025&team=${homeTeamId}`, { headers }),
       fetch(`https://v3.football.api-sports.io/teams/statistics?league=${league}&season=2025&team=${awayTeamId}`, { headers }),
@@ -88,13 +82,13 @@ async function fetchStats(homeTeamId, awayTeamId) {
     const awayData = await awayStatsRes.json().catch(() => ({}));
 
     const stats = {
-      h2h: lastH2H,  // 🔹 only 1 game now
+      h2h: lastH2H,
       homeStats: {
         id: homeTeamId,
         name: safe(homeData, 'response.team.name', 'Home Team'),
         goalsScored: safe(homeData, 'response.goals.for.total.total', 0),
         goalsConceded: safe(homeData, 'response.goals.against.total.total', 0),
-        recentForm: homeForm, // oldest → most recent
+        recentForm: homeForm,
         wins: safe(homeData, 'response.fixtures.wins.total', 0),
         draws: safe(homeData, 'response.fixtures.draws.total', 0),
         losses: safe(homeData, 'response.fixtures.loses.total', 0),
@@ -104,7 +98,7 @@ async function fetchStats(homeTeamId, awayTeamId) {
         name: safe(awayData, 'response.team.name', 'Away Team'),
         goalsScored: safe(awayData, 'response.goals.for.total.total', 0),
         goalsConceded: safe(awayData, 'response.goals.against.total.total', 0),
-        recentForm: awayForm, // oldest → most recent
+        recentForm: awayForm,
         wins: safe(awayData, 'response.fixtures.wins.total', 0),
         draws: safe(awayData, 'response.fixtures.draws.total', 0),
         losses: safe(awayData, 'response.fixtures.loses.total', 0),
@@ -115,7 +109,7 @@ async function fetchStats(homeTeamId, awayTeamId) {
   } catch (err) {
     console.log('Error fetching stats:', err);
     return {
-      h2h: [], 
+      h2h: [],
       homeStats: { id: null, name: 'Home', goalsScored: 0, goalsConceded: 0, recentForm: [], wins: 0, draws: 0, losses: 0 },
       awayStats: { id: null, name: 'Away', goalsScored: 0, goalsConceded: 0, recentForm: [], wins: 0, draws: 0, losses: 0 },
     };
@@ -154,7 +148,6 @@ router.post('/free', auth, async (req, res) => {
       return res.status(403).json({ error: 'Free prediction already used this week' });
     }
 
-    // Get stats
     const stats = await fetchStats(homeTeam, awayTeam);
     console.log('Stats being sent to OpenAI:', JSON.stringify(stats, null, 2));
 
@@ -164,12 +157,19 @@ router.post('/free', auth, async (req, res) => {
       ? "Occasionally phrase your prediction boldly if the stats support it. Use confident language like 'will dominate', 'likely to win convincingly', or 'high chance of scoring multiple goals'."
       : "";
 
-    // ✅ Updated prompt with boldness
+    // ⭐ ADDED — Upset Detector (25% chance)
+    const upsetChance = Math.random() < 0.25;
+    const upsetInstruction = upsetChance
+      ? "Look specifically for a potential UPSET. Analyse whether the underdog has any statistical or situational advantages such as recent strong form, defensive improvements, opponent fatigue, missing key players, away disadvantage, or inconsistent play. If plausible, clearly state the upset scenario."
+      : "";
+
+    // Prompt
     const prompt = [
       `You are a football analyst. Provide a concise prediction in bullet points (score and reasoning).`,
       `Do NOT mention stadiums, grounds, or venue names.`,
       `Only mention: recent form, goals scored/conceded, team stats, home/away performance, and head-to-head.`,
       boldInstruction,
+      upsetInstruction, // ⭐ INSERTED HERE
       `Home team: ${stats.homeStats.name} (ID: ${homeTeam})`,
       `Away team: ${stats.awayStats.name} (ID: ${awayTeam})`,
       `Stats: ${JSON.stringify(stats)}`
@@ -182,7 +182,7 @@ router.post('/free', auth, async (req, res) => {
         { role: 'user', content: prompt }
       ],
       max_tokens: 300,
-      temperature: 0.75, // slightly higher for more expressive phrasing
+      temperature: 0.75,
     });
 
     const prediction = completion.choices?.[0]?.message?.content ?? 'No prediction returned';
