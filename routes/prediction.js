@@ -60,9 +60,12 @@ async function fetchStats(homeTeamId, awayTeamId) {
     const h2hRes = await fetch(h2hUrl, { headers });
     const h2hData = await h2hRes.json().catch(() => ({}));
 
-    // Take only the last H2H match
+    // Sort by fixture date descending (newest first)
     const h2hArray = h2hData?.response ?? [];
-    const lastH2H = h2hArray.length > 0 ? [h2hArray[0]] : []; // 🔹 only the most recent
+    h2hArray.sort((a, b) => new Date(b.fixture.date) - new Date(a.fixture.date));
+
+    // Take only the most recent H2H match
+    const lastH2H = h2hArray.length > 0 ? [h2hArray[0]] : [];
 
     // Last 5 matches form for each team
     const [homeForm, awayForm] = await Promise.all([
@@ -88,7 +91,7 @@ async function fetchStats(homeTeamId, awayTeamId) {
     const awayData = await awayStatsRes.json().catch(() => ({}));
 
     const stats = {
-      h2h: lastH2H,  // 🔹 only 1 game now
+      h2h: lastH2H,  // 🔹 now guaranteed most recent match
       homeStats: {
         id: homeTeamId,
         name: safe(homeData, 'response.team.name', 'Home Team'),
@@ -182,7 +185,7 @@ router.post('/free', auth, async (req, res) => {
         { role: 'user', content: prompt }
       ],
       max_tokens: 300,
-      temperature: 0.75, // slightly higher for more expressive phrasing
+      temperature: 0.75,
     });
 
     const prediction = completion.choices?.[0]?.message?.content ?? 'No prediction returned';
