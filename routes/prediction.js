@@ -127,45 +127,17 @@ router.post('/free', auth, async (req, res) => {
 
     const stats = await fetchStats(homeTeam, awayTeam);
 
-    // --- Compute Win Probabilities ---
-    const homeForm = stats.homeStats.recentForm.slice(-5);
-    const awayForm = stats.awayStats.recentForm.slice(-5);
-
-    const calcProb = (wins, draws) => wins + draws * 0.5;
-    let homeScore = calcProb(homeForm.filter(f => f==="W").length, homeForm.filter(f=>"D").length);
-    let awayScore = calcProb(awayForm.filter(f => f==="W").length, awayForm.filter(f=>"D").length);
-    let drawScore = homeForm.filter(f=>"D").length + awayForm.filter(f=>"D").length;
-    let total = homeScore + awayScore + drawScore || 1;
-
-    let homePct = Math.round((homeScore/total)*100);
-    let awayPct = Math.round((awayScore/total)*100);
-    let drawPct = 100 - homePct - awayPct;
-    const minDraw = 20;
-    if(drawPct < minDraw){
-      const diff = minDraw - drawPct;
-      drawPct = minDraw;
-      const reduceHome = Math.round((homePct/(homePct+awayPct))*diff);
-      const reduceAway = diff - reduceHome;
-      homePct = Math.max(0,homePct-reduceHome);
-      awayPct = Math.max(0,awayPct-reduceAway);
-    }
-
-    // --- Compute BTTS Probability ---
-    const bttsPct = Math.min(
-      100,
-      Math.round(
-        ((stats.homeStats.goalsScored > 0 ? 1 : 0) + (stats.awayStats.goalsScored > 0 ? 1 : 0)) * 50
-      )
-    );
-
-    // --- Call OpenAI for score prediction and short explanation using real stats ---
+    // --- Call OpenAI to predict everything ---
     const prompt = `
 You are a football analyst. Using the real season stats and recent form, predict the upcoming match between ${stats.homeStats.name} (Home) and ${stats.awayStats.name} (Away).
-- Give an actual score prediction (e.g., 2-1).
-- Provide a short reasoning sentence, including form, goals scored/conceded.
-- Mention both teams by name.
-- Mention chance of both teams to score (BTTS) as a percentage.
-- Keep reasoning concise but informative.
+Return a JSON object ONLY with the following keys:
+- "score": predicted score as a string, e.g., "2-1"
+- "winChances": object with "home", "draw", "away" percentages summing to 100
+- "bttsPct": percentage chance both teams will score
+- "reasoning": short reasoning mentioning team names, form, goals scored/conceded
+- "recentForm": object with "home" and "away" arrays of last 5 matches (W/D/L)
+Do not include any text outside the JSON.
+Use the stats from this season, recent form, and realistic predictions.
     `;
 
     const completion = await openai.chat.completions.create({
@@ -174,11 +146,24 @@ You are a football analyst. Using the real season stats and recent form, predict
         { role: 'system', content: 'You are a football analyst.' },
         { role: 'user', content: prompt }
       ],
-      max_tokens: 250,
+      max_tokens: 350,
       temperature: 0.75
     });
 
-    const aiPrediction = completion.choices?.[0]?.message?.content ?? 'No prediction returned';
+    let aiPredictionRaw = completion.choices?.[0]?.message?.content ?? '';
+    let aiPrediction;
+    try {
+      aiPrediction = JSON.parse(aiPredictionRaw);
+    } catch (err) {
+      console.log('GPT output parsing failed:', aiPredictionRaw);
+      aiPrediction = {
+        score: 'N/A',
+        winChances: { home: 33, draw: 34, away: 33 },
+        bttsPct: 50,
+        reasoning: 'Prediction unavailable',
+        recentForm: { home: stats.homeStats.recentForm.slice(-5), away: stats.awayStats.recentForm.slice(-5) }
+      };
+    }
 
     if (!user.isPremium) {
       user.freePredictions = user.freePredictions || {};
@@ -186,13 +171,13 @@ You are a football analyst. Using the real season stats and recent form, predict
       await user.save();
     }
 
-    // --- Send everything frontend expects ---
+    // --- Send exactly what front end expects ---
     res.json({
-      prediction: aiPrediction, // This is the score + reasoning text
-      stats,
-      winChances: { home: homePct, draw: drawPct, away: awayPct }, // bars
-      recentForm: { home: homeForm, away: awayForm }, // dots
-      bttsPct // single BTTS bar
+      score: aiPrediction.score,
+      winChances: aiPrediction.winChances, // bars now match AI prediction
+      bttsPct: aiPrediction.bttsPct,       // BTTS bar matches AI prediction
+      reasoning: aiPrediction.reasoning,
+      recentForm: aiPrediction.recentForm
     });
 
   } catch (err) {
