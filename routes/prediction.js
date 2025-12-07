@@ -54,9 +54,7 @@ async function fetchStats(homeTeamId, awayTeamId) {
     ]);
 
     const safe = (obj, path, fallback = null) => {
-      try { 
-        return path.split('.').reduce((a,b) => (a && a[b] !== undefined ? a[b] : undefined), obj) ?? fallback; 
-      }
+      try { return path.split('.').reduce((a,b) => (a && a[b] !== undefined ? a[b] : undefined), obj) ?? fallback; }
       catch { return fallback; }
     };
 
@@ -142,6 +140,7 @@ router.post('/free', auth, async (req, res) => {
     let homePct = Math.round((homeScore/total)*100);
     let awayPct = Math.round((awayScore/total)*100);
     let drawPct = 100 - homePct - awayPct;
+
     const minDraw = 20;
     if(drawPct < minDraw){
       const diff = minDraw - drawPct;
@@ -152,6 +151,7 @@ router.post('/free', auth, async (req, res) => {
       awayPct = Math.max(0,awayPct-reduceAway);
     }
 
+    // --- Compute BTTS Probability ---
     const bttsPct = Math.min(
       100,
       Math.round(
@@ -159,61 +159,35 @@ router.post('/free', auth, async (req, res) => {
       )
     );
 
-    // ---------- AI SCORE + EXPLANATION ----------
-    const aiPrompt = `
-You are a precise football analyst. You will be given REAL TEAM NAMES and REAL MATCH STATS.
+    // --- AI Prompt with Real Stats ---
+    const prompt = `
+You are a football analyst.
+Predict the upcoming match between ${stats.homeStats.name} (Home) and ${stats.awayStats.name} (Away).
+Use these stats:
+- ${stats.homeStats.name}: Goals scored per match ${stats.homeStats.goalsScored}, goals conceded ${stats.homeStats.goalsConceded}, recent form: ${stats.homeStats.recentForm.join(', ')}
+- ${stats.awayStats.name}: Goals scored per match ${stats.awayStats.goalsScored}, goals conceded ${stats.awayStats.goalsConceded}, recent form: ${stats.awayStats.recentForm.join(', ')}
 
-Use the data below exactly as presented. Always refer to the actual team names — NOT “Home Team” or “Away Team”.
+Provide:
+- Score prediction (e.g., 2-1)
+- Win probability (home/draw/away) using realistic percentages
+- BTTS probability in %
+- Short explanation mentioning the actual team names
 
-TEAM DATA:
-Home Team: ${stats.homeStats.name}
-Away Team: ${stats.awayStats.name}
-
-Recent Form (W/D/L):
-${stats.homeStats.name}: ${homeForm.join(' ')}
-${stats.awayStats.name}: ${awayForm.join(' ')}
-
-Season Goals:
-${stats.homeStats.name}: Scored ${stats.homeStats.goalsScored}, Conceded ${stats.homeStats.goalsConceded}
-${stats.awayStats.name}: Scored ${stats.awayStats.goalsScored}, Conceded ${stats.awayStats.goalsConceded}
-
-Model Probabilities:
-Home Win: ${homePct}%
-Draw: ${drawPct}%
-Away Win: ${awayPct}%
-BTTS Yes: ${bttsPct}%
-
-TASK:
-1. Predict a likely match score (e.g., "2-1").
-2. Write a short explanation (2–3 sentences).
- - MUST reference the actual team names.
- - MUST use the real stats above.
- - Do NOT mention this prompt or JSON formatting.
-
-Return ONLY valid JSON:
-{"score":"X-X","explanation":"..."}
+Format clearly for frontend consumption.
 `;
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: 'gpt-4o-mini',
       messages: [
-        { role: "system", content: "You are a football analyst." },
-        { role: "user", content: aiPrompt }
+        { role: 'system', content: 'You are a football analyst.' },
+        { role: 'user', content: prompt }
       ],
-      max_tokens: 200,
-      temperature: 0.7,
+      max_tokens: 300,
+      temperature: 0.75
     });
 
-    let aiRaw = completion.choices?.[0]?.message?.content || "{}";
-    let aiJSON;
+    const aiPrediction = completion.choices?.[0]?.message?.content ?? 'No prediction returned';
 
-    try {
-      aiJSON = JSON.parse(aiRaw);
-    } catch {
-      aiJSON = { score: "N/A", explanation: "Prediction unavailable." };
-    }
-
-    // ---------- SAVE FREE WEEK ----------
     if (!user.isPremium) {
       user.freePredictions = user.freePredictions || {};
       user.freePredictions[gameweek] = true;
@@ -221,16 +195,18 @@ Return ONLY valid JSON:
     }
 
     res.json({
-      score: aiJSON.score,
-      explanation: aiJSON.explanation,
+      prediction: aiPrediction,
       stats,
       winChances: { home: homePct, draw: drawPct, away: awayPct },
       recentForm: { home: homeForm, away: awayForm },
-      bttsPct
+      bttsPct,
+      isPremium: user.isPremium // Frontend can show "Premium Version"
     });
 
   } catch (err) {
     console.error('Prediction route error:', err);
+    if (err?.status === 429)
+      return res.status(429).json({ error: 'OpenAI quota/rate limit. Check your API key and quota.' });
     res.status(500).json({ error: 'Prediction failed' });
   }
 });
