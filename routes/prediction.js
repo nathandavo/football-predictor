@@ -30,11 +30,9 @@ async function fetchStats(homeTeamId, awayTeamId) {
       );
       const data = await res.json().catch(() => ({}));
       if (!data.response) return [];
-
       const sortedMatches = data.response.sort(
         (a, b) => new Date(a.fixture.date) - new Date(b.fixture.date)
       );
-
       return sortedMatches.map(match => {
         if (match.teams.home.id === teamId) {
           if (match.goals.home > match.goals.away) return "W";
@@ -127,54 +125,18 @@ router.post('/free', auth, async (req, res) => {
 
     const stats = await fetchStats(homeTeam, awayTeam);
 
-    // --- Compute Win Probabilities ---
-    const homeForm = stats.homeStats.recentForm.slice(-5);
-    const awayForm = stats.awayStats.recentForm.slice(-5);
-
-    const calcProb = (wins, draws) => wins + draws * 0.5;
-    let homeScore = calcProb(homeForm.filter(f => f==="W").length, homeForm.filter(f=>"D").length);
-    let awayScore = calcProb(awayForm.filter(f => f==="W").length, awayForm.filter(f=>"D").length);
-    let drawScore = homeForm.filter(f=>"D").length + awayForm.filter(f=>"D").length;
-    let total = homeScore + awayScore + drawScore || 1;
-
-    let homePct = Math.round((homeScore/total)*100);
-    let awayPct = Math.round((awayScore/total)*100);
-    let drawPct = 100 - homePct - awayPct;
-
-    const minDraw = 20;
-    if(drawPct < minDraw){
-      const diff = minDraw - drawPct;
-      drawPct = minDraw;
-      const reduceHome = Math.round((homePct/(homePct+awayPct))*diff);
-      const reduceAway = diff - reduceHome;
-      homePct = Math.max(0,homePct-reduceHome);
-      awayPct = Math.max(0,awayPct-reduceAway);
-    }
-
-    // --- Compute BTTS Probability ---
-    const bttsPct = Math.min(
-      100,
-      Math.round(
-        ((stats.homeStats.goalsScored > 0 ? 1 : 0) + (stats.awayStats.goalsScored > 0 ? 1 : 0)) * 50
-      )
-    );
-
-    // --- AI Prompt with Real Stats ---
-    const prompt = `
-You are a football analyst.
-Predict the upcoming match between ${stats.homeStats.name} (Home) and ${stats.awayStats.name} (Away).
-Use these stats:
-- ${stats.homeStats.name}: Goals scored per match ${stats.homeStats.goalsScored}, goals conceded ${stats.homeStats.goalsConceded}, recent form: ${stats.homeStats.recentForm.join(', ')}
-- ${stats.awayStats.name}: Goals scored per match ${stats.awayStats.goalsScored}, goals conceded ${stats.awayStats.goalsConceded}, recent form: ${stats.awayStats.recentForm.join(', ')}
-
-Provide:
-- Score prediction (e.g., 2-1)
-- Win probability (home/draw/away) using realistic percentages
-- BTTS probability in %
-- Short explanation mentioning the actual team names
-
-Format clearly for frontend consumption.
-`;
+    // --- Call OpenAI to predict everything ---
+    const prompt = [
+      `You are a football analyst. Use the following stats to predict the upcoming Premier League match:`,
+      `Home Team: ${stats.homeStats.name}, Goals Scored: ${stats.homeStats.goalsScored}, Goals Conceded: ${stats.homeStats.goalsConceded}, Recent Form: ${stats.homeStats.recentForm.join(',')}`,
+      `Away Team: ${stats.awayStats.name}, Goals Scored: ${stats.awayStats.goalsScored}, Goals Conceded: ${stats.awayStats.goalsConceded}, Recent Form: ${stats.awayStats.recentForm.join(',')}`,
+      `Predict:`,
+      `1. Final Score (e.g., 2-1).`,
+      `2. Win Probability: 1 single line of 10 squares (🟩 home, 🟧 draw, 🟥 away) and % numbers below.`,
+      `3. BTTS Probability: 1 single line of 10 squares (🟩 Yes, 🟥 No) and % number below.`,
+      `4. Short reasoning (1-2 sentences) including team names.`,
+      `Output strictly as JSON with keys: score, winBar, winPct, bttsBar, bttsPct, reasoning, recentForm {home: [...], away: [...]}.`,
+    ].join('\n');
 
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
@@ -182,11 +144,15 @@ Format clearly for frontend consumption.
         { role: 'system', content: 'You are a football analyst.' },
         { role: 'user', content: prompt }
       ],
-      max_tokens: 300,
-      temperature: 0.75
+      max_tokens: 400,
+      temperature: 0.8
     });
 
-    const aiPrediction = completion.choices?.[0]?.message?.content ?? 'No prediction returned';
+    const aiPredictionRaw = completion.choices?.[0]?.message?.content ?? '';
+    let aiPrediction;
+    try { aiPrediction = JSON.parse(aiPredictionRaw); } catch {
+      aiPrediction = { score: 'N/A', winBar: '', winPct: '', bttsBar: '', bttsPct: '', reasoning: aiPredictionRaw, recentForm: { home: stats.homeStats.recentForm, away: stats.awayStats.recentForm } };
+    }
 
     if (!user.isPremium) {
       user.freePredictions = user.freePredictions || {};
@@ -194,14 +160,7 @@ Format clearly for frontend consumption.
       await user.save();
     }
 
-    res.json({
-      prediction: aiPrediction,
-      stats,
-      winChances: { home: homePct, draw: drawPct, away: awayPct },
-      recentForm: { home: homeForm, away: awayForm },
-      bttsPct,
-      isPremium: user.isPremium // Frontend can show "Premium Version"
-    });
+    res.json(aiPrediction);
 
   } catch (err) {
     console.error('Prediction route error:', err);
