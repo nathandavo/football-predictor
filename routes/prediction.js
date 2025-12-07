@@ -158,24 +158,15 @@ router.post('/free', auth, async (req, res) => {
       )
     );
 
-    // --- AI Prompt strictly based on real stats ---
+    // --- Call OpenAI for score prediction and short explanation using real stats ---
     const prompt = `
-You are a football analyst.
-Use ONLY the real stats provided below for your analysis. Do NOT invent any opinions.
-Provide a concise match prediction for:
-
-Home: ${stats.homeStats.name}
-Away: ${stats.awayStats.name}
-
-Include:
-- Predicted score (e.g., 2-1)
-- Short reasoning strictly based on stats
-- Win probability (home/draw/away) and BTTS chance
-- Use the stats as guidance, do not invent strengths/weaknesses
-
-STATS:
-${JSON.stringify(stats, null, 2)}
-`;
+You are a football analyst. Using the real season stats and recent form, predict the upcoming match between ${stats.homeStats.name} (Home) and ${stats.awayStats.name} (Away).
+- Give an actual score prediction (e.g., 2-1).
+- Provide a short reasoning sentence, including form, goals scored/conceded.
+- Mention both teams by name.
+- Mention chance of both teams to score (BTTS) as a percentage.
+- Keep reasoning concise but informative.
+    `;
 
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
@@ -183,7 +174,7 @@ ${JSON.stringify(stats, null, 2)}
         { role: 'system', content: 'You are a football analyst.' },
         { role: 'user', content: prompt }
       ],
-      max_tokens: 300,
+      max_tokens: 250,
       temperature: 0.75
     });
 
@@ -197,11 +188,11 @@ ${JSON.stringify(stats, null, 2)}
 
     // --- Send everything frontend expects ---
     res.json({
-      prediction: aiPrediction,
+      prediction: aiPrediction, // This is the score + reasoning text
       stats,
-      winChances: { home: homePct, draw: drawPct, away: awayPct },
-      recentForm: { home: homeForm, away: awayForm },
-      bttsPct
+      winChances: { home: homePct, draw: drawPct, away: awayPct }, // bars
+      recentForm: { home: homeForm, away: awayForm }, // dots
+      bttsPct // single BTTS bar
     });
 
   } catch (err) {
