@@ -127,58 +127,97 @@ router.post('/free', auth, async (req, res) => {
 
     const stats = await fetchStats(homeTeam, awayTeam);
 
-    // --- Compute Win Probabilities ---
+    // --- Compute Win Probabilities (simple form-based heuristic) ---
     const homeForm = stats.homeStats.recentForm.slice(-5);
     const awayForm = stats.awayStats.recentForm.slice(-5);
 
+    const count = arr => arr.reduce((acc, v) => {
+      if (v === 'W') acc.wins++;
+      else if (v === 'D') acc.draws++;
+      else if (v === 'L') acc.losses++;
+      return acc;
+    }, { wins: 0, draws: 0, losses: 0 });
+
+    const h = count(homeForm);
+    const a = count(awayForm);
+
     const calcProb = (wins, draws) => wins + draws * 0.5;
-    let homeScore = calcProb(homeForm.filter(f => f==="W").length, homeForm.filter(f=>"D").length);
-    let awayScore = calcProb(awayForm.filter(f => f==="W").length, awayForm.filter(f=>"D").length);
-    let drawScore = homeForm.filter(f=>"D").length + awayForm.filter(f=>"D").length;
+    let homeScore = calcProb(h.wins, h.draws);
+    let awayScore = calcProb(a.wins, a.draws);
+    let drawScore = h.draws + a.draws;
     let total = homeScore + awayScore + drawScore || 1;
 
-    let homePct = Math.round((homeScore/total)*100);
-    let awayPct = Math.round((awayScore/total)*100);
+    let homePct = Math.round((homeScore / total) * 100);
+    let awayPct = Math.round((awayScore / total) * 100);
     let drawPct = 100 - homePct - awayPct;
+
+    // enforce minimum draw percentage
     const minDraw = 20;
-    if(drawPct < minDraw){
+    if (drawPct < minDraw) {
       const diff = minDraw - drawPct;
       drawPct = minDraw;
-      const reduceHome = Math.round((homePct/(homePct+awayPct))*diff);
+      const reduceHome = Math.round((homePct / (homePct + awayPct)) * diff);
       const reduceAway = diff - reduceHome;
-      homePct = Math.max(0,homePct-reduceHome);
-      awayPct = Math.max(0,awayPct-reduceAway);
+      homePct = Math.max(0, homePct - reduceHome);
+      awayPct = Math.max(0, awayPct - reduceAway);
     }
 
-    // --- Compute BTTS Probability ---
-    const bttsPct = Math.min(
-      100,
-      Math.round(
-        ((stats.homeStats.goalsScored > 0 ? 1 : 0) + (stats.awayStats.goalsScored > 0 ? 1 : 0)) * 50
-      )
-    );
+    // --- Compute BTTS Probability (simple heuristic using goals scored + team trends) ---
+    // This is a quick heuristic: if both teams have scored often recently, BTTS higher.
+    const homeGoals = stats.homeStats.goalsScored ?? 0;
+    const awayGoals = stats.awayStats.goalsScored ?? 0;
 
-    // --- Call OpenAI for score prediction and short explanation ---
-    const prompt = [
-      `You are a football analyst.`,
-      `Provide a short, concise match prediction.`,
-      `Include predicted score (e.g., 2-1) and a short reasoning sentence,`,
-      `also mention the chance of both teams scoring (BTTS) as a percentage.`,
-      `Teams: Home - ${stats.homeStats.name}, Away - ${stats.awayStats.name}.`
+    // Base BTTS on whether teams score and concede, averaged into a percentage
+    const homeScoreFactor = Math.min(1, homeGoals / 1.5); // approx scaling
+    const awayScoreFactor = Math.min(1, awayGoals / 1.5);
+    let bttsPct = Math.round(((homeScoreFactor + awayScoreFactor) / 2) * 100);
+
+    // clamp
+    bttsPct = Math.max(5, Math.min(95, bttsPct));
+
+    // --- Ask OpenAI for a concise score + short explanation + explicit BTTS guess in JSON ---
+    // We instruct the model to reply with strict JSON ONLY to avoid parsing errors on the backend.
+    const jsonPrompt = [
+      `You are a football analyst. Output ONLY strict JSON (no surrounding text).`,
+      `Return an object with keys: "score" (string, format "H-A"), "explanation" (short single sentence), "btts" (integer percent).`,
+      `Use the teams: Home = ${stats.homeStats.name}, Away = ${stats.awayStats.name}.`,
+      `Keep explanation concise (one sentence).`,
+      `Example output: {"score":"2-1","explanation":"Home have better form and are scoring more; expect a narrow home win.","btts":62}`
     ].join('\n');
 
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: 'You are a football analyst.' },
-        { role: 'user', content: prompt }
+        { role: 'system', content: 'You are a helpful football analyst.' },
+        { role: 'user', content: jsonPrompt }
       ],
-      max_tokens: 250,
-      temperature: 0.75
+      max_tokens: 200,
+      temperature: 0.6,
     });
 
-    const aiPrediction = completion.choices?.[0]?.message?.content ?? 'No prediction returned';
+    const raw = completion.choices?.[0]?.message?.content ?? '';
+    let parsed = null;
+    try {
+      // try to extract JSON substring first (in case of stray whitespace)
+      const firstBrace = raw.indexOf('{');
+      const lastBrace = raw.lastIndexOf('}');
+      const jsonText = firstBrace !== -1 && lastBrace !== -1 ? raw.slice(firstBrace, lastBrace + 1) : raw;
+      parsed = JSON.parse(jsonText);
+    } catch (e) {
+      // fallback: if parsing fails, create a fallback structured object using heuristics
+      parsed = {
+        score: "1-1",
+        explanation: typeof raw === 'string' ? raw.trim().split('\n')[0].slice(0, 200) : 'Tight match; no clear edge.',
+        btts: bttsPct
+      };
+    }
 
+    // Ensure parsed fields exist and are sensible
+    const score = typeof parsed.score === 'string' ? parsed.score : '1-1';
+    const explanation = typeof parsed.explanation === 'string' ? parsed.explanation : (parsed.explain || 'Prediction unavailable');
+    const aiBtts = Number.isFinite(parsed.btts) ? Math.round(parsed.btts) : bttsPct;
+
+    // Mark free prediction used for non-premium users
     if (!user.isPremium) {
       user.freePredictions = user.freePredictions || {};
       user.freePredictions[gameweek] = true;
@@ -186,12 +225,20 @@ router.post('/free', auth, async (req, res) => {
     }
 
     // --- Send everything frontend expects ---
-    res.json({
-      prediction: aiPrediction,
-      stats,
+    return res.json({
+      // Ai-provided score and explanation (clean)
+      score,
+      explanation,
+      // Raw AI text (for debugging / display if needed)
+      rawAi: raw,
+      // Win chances (home/draw/away)
       winChances: { home: homePct, draw: drawPct, away: awayPct },
-      recentForm: { home: homeForm, away: awayForm },
-      bttsPct
+      // BTTS percentage
+      bttsPct: aiBtts,
+      // recent form arrays (oldest -> most recent)
+      recentForm: { home: stats.homeStats.recentForm, away: stats.awayStats.recentForm },
+      // include some stats for frontend if needed
+      stats
     });
 
   } catch (err) {
