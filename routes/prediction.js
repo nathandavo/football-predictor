@@ -1,4 +1,3 @@
-// routes/prediction.js
 const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth');
@@ -23,34 +22,30 @@ async function fetchStats(homeTeamId, awayTeamId) {
     const headers = { 'x-apisports-key': key };
     const league = 39;
 
-    // ★★★★★ FIXED VERSION — ONLY CHANGE ★★★★★
     const getRecentForm = async (teamId) => {
       const res = await fetch(
-        `https://v3.football.api-sports.io/fixtures?team=${teamId}&league=${league}&season=2025&last=5`,
+        `https://v3.football.api-sports.io/fixtures?team=${teamId}&league=${league}&last=5`,
         { headers }
       );
       const data = await res.json().catch(() => ({}));
       if (!data.response) return [];
 
-      // sort oldest → newest (correct)
-      const matches = data.response.sort(
+      const sortedMatches = data.response.sort(
         (a, b) => new Date(a.fixture.date) - new Date(b.fixture.date)
       );
 
-      // convert to W/D/L correctly
-      const form = matches.map(match => {
-        const isHome = match.teams.home.id === teamId;
-        const gf = isHome ? match.goals.home : match.goals.away;
-        const ga = isHome ? match.goals.away : match.goals.home;
-
-        if (gf > ga) return "W";
-        if (gf < ga) return "L";
-        return "D";
+      return sortedMatches.map(match => {
+        if (match.teams.home.id === teamId) {
+          if (match.goals.home > match.goals.away) return "W";
+          if (match.goals.home < match.goals.away) return "L";
+          return "D";
+        } else {
+          if (match.goals.away > match.goals.home) return "W";
+          if (match.goals.away < match.goals.home) return "L";
+          return "D";
+        }
       });
-
-      return form; // front-end already shows newest on the right
     };
-    // ★★★★★ END OF FIX — NOTHING ELSE TOUCHED ★★★★★
 
     const [homeForm, awayForm] = await Promise.all([
       getRecentForm(homeTeamId),
@@ -134,11 +129,13 @@ router.post('/free', auth, async (req, res) => {
     const prompt = `
 You are a football analyst. Using the real season stats and recent form, predict the upcoming match between ${stats.homeStats.name} (Home) and ${stats.awayStats.name} (Away).
 Return a JSON object ONLY with the following keys:
-- "score"
-- "winChances" (home/draw/away)
-- "bttsPct"
-- "reasoning"
-- "recentForm" (use real last 5 from API, do NOT change order)
+- "score": predicted score as a string, e.g., "2-1"
+- "winChances": object with "home", "draw", "away" percentages summing to 100
+- "bttsPct": percentage chance both teams will score
+- "reasoning": short reasoning mentioning team names, form, goals scored/conceded
+- "recentForm": object with "home" and "away" arrays of last 5 matches (W/D/L)
+Do not include any text outside the JSON.
+Use the stats from this season, recent form, and realistic predictions.
     `;
 
     const completion = await openai.chat.completions.create({
@@ -152,6 +149,16 @@ Return a JSON object ONLY with the following keys:
     });
 
     let aiPredictionRaw = completion.choices?.[0]?.message?.content ?? '';
+
+    // ------------------------------
+    // FIX: Strip extra text and parse safely
+    // ------------------------------
+    const firstBrace = aiPredictionRaw.indexOf('{');
+    const lastBrace = aiPredictionRaw.lastIndexOf('}');
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      aiPredictionRaw = aiPredictionRaw.substring(firstBrace, lastBrace + 1);
+    }
+
     let aiPrediction;
     try {
       aiPrediction = JSON.parse(aiPredictionRaw);
