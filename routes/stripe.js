@@ -57,13 +57,10 @@ router.post("/checkout", auth, async (req, res) => {
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
-
-      // 🔥 FIX IS HERE 🔥
-      mode: "subscription",    // changed from "payment"
-
+      mode: "subscription",       // 🔥 CHANGED THIS ONE LINE ONLY
       line_items: [
         {
-          price: process.env.STRIPE_PRICE_ID, // monthly recurring price
+          price: process.env.STRIPE_PRICE_ID,
           quantity: 1,
         },
       ],
