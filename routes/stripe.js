@@ -8,7 +8,7 @@ const bodyParser = require("body-parser");
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-// Use raw body parser for webhook
+// Webhook route — must use raw body parser
 router.post(
   "/webhook",
   bodyParser.raw({ type: "application/json" }),
@@ -27,7 +27,6 @@ router.post(
       return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
-    // Handle the checkout.session.completed event
     if (event.type === "checkout.session.completed") {
       const session = event.data.object;
       const userId = session.metadata.userId;
@@ -50,23 +49,23 @@ router.post(
   }
 );
 
-// Create checkout session
+// Create subscription checkout session
 router.post("/checkout", auth, async (req, res) => {
   try {
     const userId = req.user.id;
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
-      mode: "subscription",       // 🔥 CHANGED THIS ONE LINE ONLY
+      mode: "subscription",   // must be subscription for recurring
       line_items: [
         {
-          price: process.env.STRIPE_PRICE_ID,
+          price: process.env.STRIPE_PRICE_ID, // recurring monthly £9.99
           quantity: 1,
         },
       ],
       success_url: `${process.env.APP_URL}/success`,
       cancel_url: `${process.env.APP_URL}/cancel`,
-      metadata: { userId },
+      metadata: { userId },   // link Stripe session to user
     });
 
     res.json({ url: session.url });
