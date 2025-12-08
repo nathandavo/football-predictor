@@ -23,30 +23,38 @@ async function fetchStats(homeTeamId, awayTeamId) {
     const headers = { 'x-apisports-key': key };
     const league = 39;
 
+    // ----------------------------------------------------
+    // FIXED getRecentForm — NOW RETURNS ONLY:
+    // Premier League • Season 2025 • Finished matches • Last 5
+    // NOTHING ELSE CHANGED
+    // ----------------------------------------------------
     const getRecentForm = async (teamId) => {
       const res = await fetch(
-        `https://v3.football.api-sports.io/fixtures?team=${teamId}&league=${league}&last=10`,
+        `https://v3.football.api-sports.io/fixtures?team=${teamId}&league=${league}&season=2025&status=FT`,
         { headers }
       );
+
       const data = await res.json().catch(() => ({}));
       if (!data.response) return [];
 
-      // Only consider completed matches (FT/AET) and sort by date
-      const completedMatches = data.response
-        .filter(m => ["FT","AET"].includes(m.fixture.status.short))
-        .sort((a, b) => new Date(a.fixture.date) - new Date(b.fixture.date));
+      // Sort newest → oldest
+      const sorted = data.response.sort(
+        (a, b) => new Date(b.fixture.date) - new Date(a.fixture.date)
+      );
 
       // Take last 5
-      return completedMatches.slice(-5).map(match => {
-        const isHome = match.teams.home.id === teamId;
-        const goalsFor = isHome ? match.goals.home : match.goals.away;
-        const goalsAgainst = isHome ? match.goals.away : match.goals.home;
+      const lastFive = sorted.slice(0, 5);
 
-        if (goalsFor > goalsAgainst) return "W";
-        if (goalsFor < goalsAgainst) return "L";
+      return lastFive.map(match => {
+        const isHome = match.teams.home.id === teamId;
+        const gf = isHome ? match.goals.home : match.goals.away;
+        const ga = isHome ? match.goals.away : match.goals.home;
+        if (gf > ga) return "W";
+        if (gf < ga) return "L";
         return "D";
       });
     };
+    // ----------------------------------------------------
 
     const [homeForm, awayForm] = await Promise.all([
       getRecentForm(homeTeamId),
@@ -127,7 +135,6 @@ router.post('/free', auth, async (req, res) => {
 
     const stats = await fetchStats(homeTeam, awayTeam);
 
-    // --- Call OpenAI to predict everything ---
     const prompt = `
 You are a football analyst. Using the real season stats and recent form, predict the upcoming match between ${stats.homeStats.name} (Home) and ${stats.awayStats.name} (Away).
 Return a JSON object ONLY with the following keys:
@@ -161,7 +168,10 @@ Use the stats from this season, recent form, and realistic predictions.
         winChances: { home: 33, draw: 34, away: 33 },
         bttsPct: 50,
         reasoning: 'Prediction unavailable',
-        recentForm: { home: stats.homeStats.recentForm.slice(-5), away: stats.awayStats.recentForm.slice(-5) }
+        recentForm: {
+          home: stats.homeStats.recentForm.slice(-5),
+          away: stats.awayStats.recentForm.slice(-5)
+        }
       };
     }
 
@@ -171,11 +181,10 @@ Use the stats from this season, recent form, and realistic predictions.
       await user.save();
     }
 
-    // --- Send exactly what front end expects ---
     res.json({
       score: aiPrediction.score,
-      winChances: aiPrediction.winChances, // bars now match AI prediction
-      bttsPct: aiPrediction.bttsPct,       // BTTS bar matches AI prediction
+      winChances: aiPrediction.winChances,
+      bttsPct: aiPrediction.bttsPct,
       reasoning: aiPrediction.reasoning,
       recentForm: aiPrediction.recentForm
     });
