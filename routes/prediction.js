@@ -31,11 +31,8 @@ async function fetchStats(homeTeamId, awayTeamId) {
       const data = await res.json().catch(() => ({}));
       if (!data.response) return [];
 
-      const sortedMatches = data.response.sort(
-        (a, b) => new Date(a.fixture.date) - new Date(b.fixture.date)
-      );
-
-      return sortedMatches.map(match => {
+      // ✅ FIX APPLIED — DO NOT SORT, API returns correct last 5 order
+      return data.response.map(match => {
         if (match.teams.home.id === teamId) {
           if (match.goals.home > match.goals.away) return "W";
           if (match.goals.home < match.goals.away) return "L";
@@ -170,16 +167,6 @@ Use the stats from this season, recent form, and realistic predictions.
       user.freePredictions[gameweek] = true;
       await user.save();
     }
-
-    // --- FIX: ensure exactly 5 recent form dots (NOTHING ELSE CHANGED) ---
-    function padForm(arr) {
-      const out = [...arr];
-      while (out.length < 5) out.unshift("-");
-      return out.slice(-5);
-    }
-
-    aiPrediction.recentForm.home = padForm(aiPrediction.recentForm.home || []);
-    aiPrediction.recentForm.away = padForm(aiPrediction.recentForm.away || []);
 
     // --- Send exactly what front end expects ---
     res.json({
