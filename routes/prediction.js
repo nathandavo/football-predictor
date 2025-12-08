@@ -31,8 +31,12 @@ async function fetchStats(homeTeamId, awayTeamId) {
       const data = await res.json().catch(() => ({}));
       if (!data.response) return [];
 
-      // ✅ FIX APPLIED — DO NOT SORT, API returns correct last 5 order
-      return data.response.map(match => {
+      // SORT newest first and take first 5 matches
+      const sortedMatches = data.response.sort(
+        (a, b) => new Date(b.fixture.date) - new Date(a.fixture.date)
+      ).slice(0, 5);
+
+      return sortedMatches.map(match => {
         if (match.teams.home.id === teamId) {
           if (match.goals.home > match.goals.away) return "W";
           if (match.goals.home < match.goals.away) return "L";
@@ -158,7 +162,7 @@ Use the stats from this season, recent form, and realistic predictions.
         winChances: { home: 33, draw: 34, away: 33 },
         bttsPct: 50,
         reasoning: 'Prediction unavailable',
-        recentForm: { home: stats.homeStats.recentForm.slice(-5), away: stats.awayStats.recentForm.slice(-5) }
+        recentForm: { home: stats.homeStats.recentForm.slice(0,5), away: stats.awayStats.recentForm.slice(0,5) }
       };
     }
 
@@ -171,8 +175,8 @@ Use the stats from this season, recent form, and realistic predictions.
     // --- Send exactly what front end expects ---
     res.json({
       score: aiPrediction.score,
-      winChances: aiPrediction.winChances,
-      bttsPct: aiPrediction.bttsPct,
+      winChances: aiPrediction.winChances, // bars now match AI prediction
+      bttsPct: aiPrediction.bttsPct,       // BTTS bar matches AI prediction
       reasoning: aiPrediction.reasoning,
       recentForm: aiPrediction.recentForm
     });
