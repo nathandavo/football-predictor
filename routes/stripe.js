@@ -8,12 +8,14 @@ const bodyParser = require("body-parser");
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-// Webhook route
+// --------------------------
+// WEBHOOK
+// --------------------------
 router.post(
   "/webhook",
   bodyParser.raw({ type: "application/json" }),
   async (req, res) => {
-    console.log("💥 /webhook hit"); // Log webhook hit
+    console.log("💥 /webhook hit");
     const sig = req.headers["stripe-signature"];
     let event;
 
@@ -53,7 +55,9 @@ router.post(
   }
 );
 
-// Create subscription checkout session
+// --------------------------
+// SUBSCRIPTION CHECKOUT
+// --------------------------
 router.post("/payment", auth, async (req, res) => {
   console.log("💥 /payment route hit");
   console.log("💥 req.user.id:", req.user?.id);
@@ -67,7 +71,7 @@ router.post("/payment", auth, async (req, res) => {
       mode: "subscription", // must be subscription for recurring
       line_items: [
         {
-          price: process.env.STRIPE_PRICE_ID, // recurring monthly £9.99
+          price: process.env.STRIPE_PRICE_ID, // recurring monthly
           quantity: 1,
         },
       ],
