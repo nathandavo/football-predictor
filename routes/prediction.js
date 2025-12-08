@@ -129,15 +129,15 @@ router.post('/free', auth, async (req, res) => {
 
     // --- Call OpenAI to predict everything ---
     const prompt = `
-Return ONLY valid JSON.
-Predict the match between ${stats.homeStats.name} (Home) and ${stats.awayStats.name} (Away).
-Required keys:
-- "score" (string)
-- "winChances": { "home": %, "draw": %, "away": % }
-- "bttsPct": %
-- "reasoning": string
-- "recentForm": { "home": [...], "away": [...] }
-Use the stats provided. No extra text.
+You are a football analyst. Using the real season stats and recent form, predict the upcoming match between ${stats.homeStats.name} (Home) and ${stats.awayStats.name} (Away).
+Return a JSON object ONLY with the following keys:
+- "score": predicted score as a string, e.g., "2-1"
+- "winChances": object with "home", "draw", "away" percentages summing to 100
+- "bttsPct": percentage chance both teams will score
+- "reasoning": short reasoning mentioning team names, form, goals scored/conceded
+- "recentForm": object with "home" and "away" arrays of last 5 matches (W/D/L)
+Do not include any text outside the JSON.
+Use the stats from this season, recent form, and realistic predictions.
     `;
 
     const completion = await openai.chat.completions.create({
@@ -151,11 +151,6 @@ Use the stats provided. No extra text.
     });
 
     let aiPredictionRaw = completion.choices?.[0]?.message?.content ?? '';
-
-    // --- FIXED: Forces JSON extraction even if model adds surrounding text ---
-    const matchJson = aiPredictionRaw.match(/\{[\s\S]*\}/);
-    if (matchJson) aiPredictionRaw = matchJson[0];
-
     let aiPrediction;
     try {
       aiPrediction = JSON.parse(aiPredictionRaw);
@@ -175,6 +170,16 @@ Use the stats provided. No extra text.
       user.freePredictions[gameweek] = true;
       await user.save();
     }
+
+    // --- FIX: ensure exactly 5 recent form dots (NOTHING ELSE CHANGED) ---
+    function padForm(arr) {
+      const out = [...arr];
+      while (out.length < 5) out.unshift("-");
+      return out.slice(-5);
+    }
+
+    aiPrediction.recentForm.home = padForm(aiPrediction.recentForm.home || []);
+    aiPrediction.recentForm.away = padForm(aiPrediction.recentForm.away || []);
 
     // --- Send exactly what front end expects ---
     res.json({
