@@ -1,4 +1,3 @@
-// routes/stripe.js
 const express = require("express");
 const router = express.Router();
 const Stripe = require("stripe");
@@ -8,7 +7,7 @@ const bodyParser = require("body-parser");
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-// Webhook route — must use raw body parser
+// Webhook route
 router.post(
   "/webhook",
   bodyParser.raw({ type: "application/json" }),
@@ -23,7 +22,7 @@ router.post(
         process.env.STRIPE_WEBHOOK_SECRET
       );
     } catch (err) {
-      console.log("⚠️ Stripe webhook signature verification failed.", err.message);
+      console.log("⚠️ Stripe webhook signature failed:", err.message);
       return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
@@ -50,24 +49,25 @@ router.post(
 );
 
 // Create subscription checkout session
-router.post("/checkout", auth, async (req, res) => {
+router.post("/payment", auth, async (req, res) => {
   try {
     const userId = req.user.id;
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
-      mode: "subscription",   // must be subscription for recurring
+      mode: "subscription",
       line_items: [
         {
-          price: process.env.STRIPE_PRICE_ID, // recurring monthly £9.99
+          price: process.env.STRIPE_PRICE_ID,
           quantity: 1,
         },
       ],
       success_url: `${process.env.APP_URL}/success`,
       cancel_url: `${process.env.APP_URL}/cancel`,
-      metadata: { userId },   // link Stripe session to user
+      metadata: { userId },
     });
 
+    console.log("✅ Checkout session created:", session.id);
     res.json({ url: session.url });
   } catch (err) {
     console.error("Stripe checkout error:", err);
