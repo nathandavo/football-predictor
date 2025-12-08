@@ -116,24 +116,20 @@ router.post('/free', auth, async (req, res) => {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    // ENSURE freePredictions object exists
-    user.freePredictions = user.freePredictions || {};
-
-    // MARK AS USED BEFORE AI PREDICTION
+    // ------------------ FIXED: Prevent multiple free predictions ------------------
     if (!user.isPremium) {
+      user.freePredictions = user.freePredictions || {};
       if (user.freePredictions[gameweek]) {
-        return res.status(403).json({ 
-          error: 'Free prediction already used this week', 
-          redirectUpgrade: true 
-        });
-      } else {
-        user.freePredictions[gameweek] = true;
-        await user.save();
+        return res.status(403).json({ error: 'Free prediction already used this week', redirectUpgrade: true });
       }
+      user.freePredictions[gameweek] = true;
+      await user.save();
     }
+    // ------------------------------------------------------------------------------
 
     const stats = await fetchStats(homeTeam, awayTeam);
 
+    // --- FIX: Include last 5 matches in prompt so AI predicts correctly ---
     const prompt = `
 You are a football analyst. Using the real season stats and recent form, predict the upcoming match between ${stats.homeStats.name} (Home) and ${stats.awayStats.name} (Away).
 Home team recent form (last 5): ${stats.homeStats.recentForm.join(', ')}
