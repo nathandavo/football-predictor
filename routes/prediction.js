@@ -1,3 +1,4 @@
+// routes/prediction.js
 const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth');
@@ -20,37 +21,37 @@ async function fetchStats(homeTeamId, awayTeamId) {
     if (!key) return { homeStats: {}, awayStats: {} };
 
     const headers = { 'x-apisports-key': key };
-    const league = 39;
+    const league = 39; // Premier League
 
     const getRecentForm = async (teamId) => {
       const res = await fetch(
-        `https://v3.football.api-sports.io/fixtures?team=${teamId}&league=${league}&last=5`,
+        `https://v3.football.api-sports.io/fixtures?team=${teamId}&league=${league}&season=2025&status=FT`,
         { headers }
       );
       const data = await res.json().catch(() => ({}));
       if (!data.response) return [];
 
-      const sortedMatches = data.response.sort(
-        (a, b) => new Date(a.fixture.date) - new Date(b.fixture.date)
-      );
+      // Filter only finished league matches for current season
+      const leagueMatches = data.response.filter(fix => fix.league.id === league);
 
-      return sortedMatches.map(match => {
-        if (match.teams.home.id === teamId) {
-          if (match.goals.home > match.goals.away) return "W";
-          if (match.goals.home < match.goals.away) return "L";
-          return "D";
-        } else {
-          if (match.goals.away > match.goals.home) return "W";
-          if (match.goals.away < match.goals.home) return "L";
-          return "D";
-        }
+      // Sort oldest → newest
+      const sortedMatches = leagueMatches.sort((a, b) => new Date(a.fixture.date) - new Date(b.fixture.date));
+
+      // Map to W/D/L for team
+      const results = sortedMatches.map(match => {
+        const isHome = match.teams.home.id === teamId;
+        const teamGoals = isHome ? match.goals.home : match.goals.away;
+        const oppGoals = isHome ? match.goals.away : match.goals.home;
+        if (teamGoals > oppGoals) return 'W';
+        if (teamGoals < oppGoals) return 'L';
+        return 'D';
       });
+
+      // Take last 5
+      return results.slice(-5);
     };
 
-    const [homeForm, awayForm] = await Promise.all([
-      getRecentForm(homeTeamId),
-      getRecentForm(awayTeamId)
-    ]);
+    const [homeForm, awayForm] = await Promise.all([getRecentForm(homeTeamId), getRecentForm(awayTeamId)]);
 
     const safe = (obj, path, fallback = null) => {
       try { return path.split('.').reduce((a,b) => (a && a[b] !== undefined ? a[b] : undefined), obj) ?? fallback; }
@@ -135,8 +136,8 @@ Return a JSON object ONLY with the following keys:
 - "reasoning": short reasoning mentioning team names, form, goals scored/conceded
 - "recentForm": object with "home" and "away" arrays of last 5 matches (W/D/L)
 Do not include any text outside the JSON.
-Use the stats from this season, recent form, and realistic predictions.
-    `;
+Use the stats from this season (25/26), recent form, and realistic predictions.
+`;
 
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
@@ -149,16 +150,6 @@ Use the stats from this season, recent form, and realistic predictions.
     });
 
     let aiPredictionRaw = completion.choices?.[0]?.message?.content ?? '';
-
-    // ------------------------------
-    // FIX: Strip extra text and parse safely
-    // ------------------------------
-    const firstBrace = aiPredictionRaw.indexOf('{');
-    const lastBrace = aiPredictionRaw.lastIndexOf('}');
-    if (firstBrace >= 0 && lastBrace > firstBrace) {
-      aiPredictionRaw = aiPredictionRaw.substring(firstBrace, lastBrace + 1);
-    }
-
     let aiPrediction;
     try {
       aiPrediction = JSON.parse(aiPredictionRaw);
@@ -169,7 +160,7 @@ Use the stats from this season, recent form, and realistic predictions.
         winChances: { home: 33, draw: 34, away: 33 },
         bttsPct: 50,
         reasoning: 'Prediction unavailable',
-        recentForm: { home: stats.homeStats.recentForm.slice(-5), away: stats.awayStats.recentForm.slice(-5) }
+        recentForm: { home: stats.homeStats.recentForm, away: stats.awayStats.recentForm }
       };
     }
 
