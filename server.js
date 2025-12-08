@@ -87,7 +87,7 @@ app.post("/payment", async (req, res) => {
       mode: "payment",
       line_items: [
         {
-          price: process.env.STRIPE_PRICE_ID, // Render environment variable
+          price: process.env.STRIPE_PRICE_ID, // Stripe Price ID from your env
           quantity: 1,
         },
       ],
@@ -101,6 +101,39 @@ app.post("/payment", async (req, res) => {
     res.status(500).json({ error: "Failed to create Stripe session" });
   }
 });
+
+// --------------------------
+// STRIPE WEBHOOK ENDPOINT
+// --------------------------
+app.post(
+  "/webhook",
+  express.raw({ type: "application/json" }),
+  (req, res) => {
+    const sig = req.headers["stripe-signature"];
+    let event;
+
+    try {
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        sig,
+        process.env.STRIPE_WEBHOOK_SECRET
+      );
+    } catch (err) {
+      console.log("Webhook signature verification failed:", err.message);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    // Handle the event
+    if (event.type === "checkout.session.completed") {
+      const session = event.data.object;
+      console.log("✅ Payment completed:", session);
+      // Here you can update user premium status in your DB
+      // e.g., find user by session.client_reference_id and set isPremium = true
+    }
+
+    res.json({ received: true });
+  }
+);
 
 // --------------------------
 // START SERVER
