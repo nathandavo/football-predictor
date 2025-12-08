@@ -116,8 +116,15 @@ router.post('/free', auth, async (req, res) => {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    if (!user.isPremium && user.freePredictions && user.freePredictions[gameweek]) {
-      return res.status(403).json({ error: 'Free prediction already used this week' });
+    // ENSURE freePredictions object exists
+    user.freePredictions = user.freePredictions || {};
+
+    // BLOCK free users who already used this week
+    if (!user.isPremium && user.freePredictions[gameweek]) {
+      return res.status(403).json({ 
+        error: 'Free prediction already used this week', 
+        redirectUpgrade: true // frontend can use this to redirect
+      });
     }
 
     const stats = await fetchStats(homeTeam, awayTeam);
@@ -163,7 +170,6 @@ Use the stats from this season (25/26), recent form, and realistic predictions.
     }
 
     if (!user.isPremium) {
-      user.freePredictions = user.freePredictions || {};
       user.freePredictions[gameweek] = true;
       await user.save();
     }
