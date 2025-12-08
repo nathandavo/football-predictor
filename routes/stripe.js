@@ -8,14 +8,13 @@ const bodyParser = require("body-parser");
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-// --------------------------
-// WEBHOOK
-// --------------------------
+// Webhook
 router.post(
   "/webhook",
   bodyParser.raw({ type: "application/json" }),
   async (req, res) => {
-    console.log("💥 /webhook hit");
+    console.log("💥 /stripe/webhook hit");
+
     const sig = req.headers["stripe-signature"];
     let event;
 
@@ -25,29 +24,21 @@ router.post(
         sig,
         process.env.STRIPE_WEBHOOK_SECRET
       );
-      console.log("💥 Webhook event constructed:", event.type);
     } catch (err) {
-      console.log("⚠️ Stripe webhook signature failed:", err.message);
+      console.log("⚠️ Webhook signature failed:", err.message);
       return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
     if (event.type === "checkout.session.completed") {
       const session = event.data.object;
       const userId = session.metadata.userId;
+      console.log("💥 Premium activated for:", userId);
 
-      console.log("💥 checkout.session.completed for userId:", userId);
-
-      try {
-        const user = await User.findById(userId);
-        if (user) {
-          user.isPremium = true;
-          await user.save();
-          console.log(`✅ User ${user.email} upgraded to premium`);
-        } else {
-          console.log("⚠️ User not found for Stripe session metadata");
-        }
-      } catch (err) {
-        console.error("Error updating user premium status:", err);
+      const user = await User.findById(userId);
+      if (user) {
+        user.isPremium = true;
+        await user.save();
+        console.log("✅ User upgraded");
       }
     }
 
@@ -55,36 +46,30 @@ router.post(
   }
 );
 
-// --------------------------
-// SUBSCRIPTION CHECKOUT
-// --------------------------
+// Create checkout session
 router.post("/payment", auth, async (req, res) => {
-  console.log("💥 /payment route hit");
-  console.log("💥 req.user.id:", req.user?.id);
-  console.log("💥 STRIPE_PRICE_ID:", process.env.STRIPE_PRICE_ID);
+  console.log("💥 /stripe/payment hit");
 
   try {
-    const userId = req.user.id;
-
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
-      mode: "subscription", // must be subscription for recurring
+      mode: "subscription",
       line_items: [
         {
-          price: process.env.STRIPE_PRICE_ID, // recurring monthly
+          price: process.env.STRIPE_PRICE_ID,
           quantity: 1,
         },
       ],
       success_url: `${process.env.APP_URL}/success`,
       cancel_url: `${process.env.APP_URL}/cancel`,
-      metadata: { userId }, // link Stripe session to user
+      metadata: { userId: req.user.id },
     });
 
-    console.log("✅ Checkout session created:", session.id, session.url);
+    console.log("➡️ Redirect URL:", session.url);
     res.json({ url: session.url });
   } catch (err) {
-    console.error("Stripe checkout error:", err);
-    res.status(500).json({ error: "Failed to create Stripe checkout session" });
+    console.log("❌ Stripe error:", err);
+    res.status(500).json({ error: "Stripe failed" });
   }
 });
 
