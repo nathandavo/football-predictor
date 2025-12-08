@@ -54,7 +54,8 @@ router.post('/login', async (req, res) => {
 // --------------------------
 router.get('/me', auth, async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select('-password'); // exclude password
+    // FIX: ensure we always fetch user fresh from DB
+    const user = await User.findById(req.user.id).select('-password');
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     res.json({
