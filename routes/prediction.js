@@ -1,4 +1,3 @@
-// routes/prediction.js
 const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth');
@@ -31,13 +30,10 @@ async function fetchStats(homeTeamId, awayTeamId) {
       const data = await res.json().catch(() => ({}));
       if (!data.response) return [];
 
-      // Filter only finished league matches for current season
       const leagueMatches = data.response.filter(fix => fix.league.id === league);
 
-      // Sort oldest → newest
       const sortedMatches = leagueMatches.sort((a, b) => new Date(a.fixture.date) - new Date(b.fixture.date));
 
-      // Map to W/D/L for team
       const results = sortedMatches.map(match => {
         const isHome = match.teams.home.id === teamId;
         const teamGoals = isHome ? match.goals.home : match.goals.away;
@@ -47,7 +43,6 @@ async function fetchStats(homeTeamId, awayTeamId) {
         return 'D';
       });
 
-      // Take last 5
       return results.slice(-5);
     };
 
@@ -127,8 +122,11 @@ router.post('/free', auth, async (req, res) => {
 
     const stats = await fetchStats(homeTeam, awayTeam);
 
+    // --- FIX: Include last 5 matches in prompt so AI predicts correctly ---
     const prompt = `
 You are a football analyst. Using the real season stats and recent form, predict the upcoming match between ${stats.homeStats.name} (Home) and ${stats.awayStats.name} (Away).
+Home team recent form (last 5): ${stats.homeStats.recentForm.join(', ')}
+Away team recent form (last 5): ${stats.awayStats.recentForm.join(', ')}
 Return a JSON object ONLY with the following keys:
 - "score": predicted score as a string, e.g., "2-1"
 - "winChances": object with "home", "draw", "away" percentages summing to 100
