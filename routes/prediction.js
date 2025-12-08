@@ -25,27 +25,26 @@ async function fetchStats(homeTeamId, awayTeamId) {
 
     const getRecentForm = async (teamId) => {
       const res = await fetch(
-        `https://v3.football.api-sports.io/fixtures?team=${teamId}&league=${league}&last=5`,
+        `https://v3.football.api-sports.io/fixtures?team=${teamId}&league=${league}&last=10`,
         { headers }
       );
       const data = await res.json().catch(() => ({}));
       if (!data.response) return [];
 
-      // SORT newest first and take first 5 matches
-      const sortedMatches = data.response.sort(
-        (a, b) => new Date(b.fixture.date) - new Date(a.fixture.date)
-      ).slice(0, 5);
+      // Only consider completed matches (FT/AET) and sort by date
+      const completedMatches = data.response
+        .filter(m => ["FT","AET"].includes(m.fixture.status.short))
+        .sort((a, b) => new Date(a.fixture.date) - new Date(b.fixture.date));
 
-      return sortedMatches.map(match => {
-        if (match.teams.home.id === teamId) {
-          if (match.goals.home > match.goals.away) return "W";
-          if (match.goals.home < match.goals.away) return "L";
-          return "D";
-        } else {
-          if (match.goals.away > match.goals.home) return "W";
-          if (match.goals.away < match.goals.home) return "L";
-          return "D";
-        }
+      // Take last 5
+      return completedMatches.slice(-5).map(match => {
+        const isHome = match.teams.home.id === teamId;
+        const goalsFor = isHome ? match.goals.home : match.goals.away;
+        const goalsAgainst = isHome ? match.goals.away : match.goals.home;
+
+        if (goalsFor > goalsAgainst) return "W";
+        if (goalsFor < goalsAgainst) return "L";
+        return "D";
       });
     };
 
@@ -162,7 +161,7 @@ Use the stats from this season, recent form, and realistic predictions.
         winChances: { home: 33, draw: 34, away: 33 },
         bttsPct: 50,
         reasoning: 'Prediction unavailable',
-        recentForm: { home: stats.homeStats.recentForm.slice(0,5), away: stats.awayStats.recentForm.slice(0,5) }
+        recentForm: { home: stats.homeStats.recentForm.slice(-5), away: stats.awayStats.recentForm.slice(-5) }
       };
     }
 
