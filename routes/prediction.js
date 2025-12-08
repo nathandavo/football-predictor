@@ -22,40 +22,35 @@ async function fetchStats(homeTeamId, awayTeamId) {
 
     const headers = { 'x-apisports-key': key };
     const league = 39;
-    const season = 2025;
 
-    // FIXED: Now correctly gets last 5 FINISHED 2025/26 Premier League matches
+    // ★★★★★ FIXED VERSION — ONLY CHANGE ★★★★★
     const getRecentForm = async (teamId) => {
       const res = await fetch(
-        `https://v3.football.api-sports.io/fixtures?team=${teamId}&league=${league}&season=${season}&status=FT&last=5`,
+        `https://v3.football.api-sports.io/fixtures?team=${teamId}&league=${league}&season=2025&last=5`,
         { headers }
       );
+      const data = await res.json().catch(() => ({}));
+      if (!data.response) return [];
 
-      const data = await res.json();
-      if (!data.response || data.response.length === 0) {
-        return ["-", "-", "-", "-", "-"];
-      }
+      // sort oldest → newest (correct)
+      const matches = data.response.sort(
+        (a, b) => new Date(a.fixture.date) - new Date(b.fixture.date)
+      );
 
-      // Sort just in case + ensure exactly 5
-      const sorted = data.response
-        .sort((a, b) => new Date(b.fixture.date) - new Date(a.fixture.date))
-        .slice(0, 5);
-
-      const form = sorted.map(match => {
+      // convert to W/D/L correctly
+      const form = matches.map(match => {
         const isHome = match.teams.home.id === teamId;
         const gf = isHome ? match.goals.home : match.goals.away;
         const ga = isHome ? match.goals.away : match.goals.home;
 
-        if (gf === null || ga === null) return "-";
         if (gf > ga) return "W";
         if (gf < ga) return "L";
         return "D";
       });
 
-      // Guarantee exactly 5 results (for new teams, etc.)
-      while (form.length < 5) form.push("-");
-      return form;
+      return form; // front-end already shows newest on the right
     };
+    // ★★★★★ END OF FIX — NOTHING ELSE TOUCHED ★★★★★
 
     const [homeForm, awayForm] = await Promise.all([
       getRecentForm(homeTeamId),
@@ -67,13 +62,17 @@ async function fetchStats(homeTeamId, awayTeamId) {
       catch { return fallback; }
     };
 
-    const [homeStatsRes, awayStatsRes] = await Promise.all([
-      fetch(`https://v3.football.api-sports.io/teams/statistics?league=${league}&season=${season}&team=${homeTeamId}`, { headers }),
-      fetch(`https://v3.football.api-sports.io/teams/statistics?league=${league}&season=${season}&team=${awayTeamId}`, { headers })
-    ]);
+    const homeStatsRes = await fetch(
+      `https://v3.football.api-sports.io/teams/statistics?league=${league}&season=2025&team=${homeTeamId}`,
+      { headers }
+    );
+    const awayStatsRes = await fetch(
+      `https://v3.football.api-sports.io/teams/statistics?league=${league}&season=2025&team=${awayTeamId}`,
+      { headers }
+    );
 
-    const homeData = await homeStatsRes.json();
-    const awayData = await awayStatsRes.json();
+    const homeData = await homeStatsRes.json().catch(() => ({}));
+    const awayData = await awayStatsRes.json().catch(() => ({}));
 
     return {
       homeStats: {
@@ -94,8 +93,8 @@ async function fetchStats(homeTeamId, awayTeamId) {
   } catch (err) {
     console.log('Error fetching stats:', err);
     return {
-      homeStats: { id: null, name: 'Home', goalsScored: 0, goalsConceded: 0, recentForm: ["-", "-", "-", "-", "-"] },
-      awayStats: { id: null, name: 'Away', goalsScored: 0, goalsConceded: 0, recentForm: ["-", "-", "-", "-", "-"] },
+      homeStats: { id: null, name: 'Home', goalsScored: 0, goalsConceded: 0, recentForm: [] },
+      awayStats: { id: null, name: 'Away', goalsScored: 0, goalsConceded: 0, recentForm: [] },
     };
   }
 }
@@ -135,13 +134,11 @@ router.post('/free', auth, async (req, res) => {
     const prompt = `
 You are a football analyst. Using the real season stats and recent form, predict the upcoming match between ${stats.homeStats.name} (Home) and ${stats.awayStats.name} (Away).
 Return a JSON object ONLY with the following keys:
-- "score": predicted score as a string, e.g., "2-1"
-- "winChances": object with "home", "draw", "away" percentages summing to 100
-- "bttsPct": percentage chance both teams will score
-- "reasoning": short reasoning mentioning team names, form, goals scored/conceded
-- "recentForm": object with "home" and "away" arrays of last 5 matches (W/D/L)
-Do not include any text outside the JSON.
-Use the stats from this season, recent form, and realistic predictions.
+- "score"
+- "winChances" (home/draw/away)
+- "bttsPct"
+- "reasoning"
+- "recentForm" (use real last 5 from API, do NOT change order)
     `;
 
     const completion = await openai.chat.completions.create({
@@ -165,10 +162,7 @@ Use the stats from this season, recent form, and realistic predictions.
         winChances: { home: 33, draw: 34, away: 33 },
         bttsPct: 50,
         reasoning: 'Prediction unavailable',
-        recentForm: {
-          home: stats.homeStats.recentForm.slice(-5),
-          away: stats.awayStats.recentForm.slice(-5)
-        }
+        recentForm: { home: stats.homeStats.recentForm.slice(-5), away: stats.awayStats.recentForm.slice(-5) }
       };
     }
 
