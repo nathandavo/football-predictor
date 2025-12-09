@@ -37,8 +37,14 @@ router.post(
       const user = await User.findById(userId);
       if (user) {
         user.isPremium = true;
+
+        // ⭐ Save customer ID for billing portal
+        if (session.customer) {
+          user.stripeCustomerId = session.customer;
+        }
+
         await user.save();
-        console.log("✅ User upgraded");
+        console.log("✅ User upgraded + customer ID saved");
       }
     }
 
@@ -70,6 +76,27 @@ router.post("/payment", auth, async (req, res) => {
   } catch (err) {
     console.log("❌ Stripe error:", err);
     res.status(500).json({ error: "Stripe failed" });
+  }
+});
+
+// ⭐ Billing portal endpoint
+router.post("/portal", auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+
+    if (!user || !user.stripeCustomerId) {
+      return res.status(400).json({ error: "User has no Stripe subscription" });
+    }
+
+    const portalSession = await stripe.billingPortal.sessions.create({
+      customer: user.stripeCustomerId,
+      return_url: `${process.env.APP_URL}/account`,
+    });
+
+    res.json({ url: portalSession.url });
+  } catch (err) {
+    console.error("❌ Billing portal error:", err);
+    res.status(500).json({ error: "Could not open portal" });
   }
 });
 
