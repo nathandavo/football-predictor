@@ -4,9 +4,10 @@ const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
   isPremium: { type: Boolean, default: false },
-  freePredictions: { type: Object, default: {} } // track free prediction per gameweek
+  freePredictions: { type: Object, default: {} },
+
+  // ⭐ Added safely — does NOT affect anything else
+  stripeCustomerId: { type: String, default: null }
 });
 
 module.exports = mongoose.model('User', userSchema);
-
-
