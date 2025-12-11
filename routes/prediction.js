@@ -115,9 +115,11 @@ router.post('/free', auth, async (req, res) => {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
+    // ---- FIX: enforce free prediction limit ----
     if (!user.isPremium) {
       user.freePredictions = user.freePredictions || {};
       if (user.freePredictions[gameweek]) {
+        // user already used free prediction this week
         return res.status(403).json({ error: 'Free prediction already used this week' });
       }
     }
@@ -132,7 +134,6 @@ Return a JSON object ONLY with the following keys:
 - "score": predicted score as a string, e.g., "2-1"
 - "winChances": object with "home", "draw", "away" percentages summing to 100
 - "bttsPct": percentage chance both teams will score
-- "overUnder25": either "Over 2.5" or "Under 2.5"
 - "reasoning": short reasoning mentioning team names, form, goals scored/conceded
 - "recentForm": object with "home" and "away" arrays of last 5 matches (W/D/L)
 Do not include any text outside the JSON.
@@ -159,12 +160,12 @@ Use the stats from this season (25/26), recent form, and realistic predictions.
         score: 'N/A',
         winChances: { home: 33, draw: 34, away: 33 },
         bttsPct: 50,
-        overUnder25: "N/A",
         reasoning: 'Prediction unavailable',
         recentForm: { home: stats.homeStats.recentForm, away: stats.awayStats.recentForm }
       };
     }
 
+    // mark prediction as used for free users
     if (!user.isPremium) {
       user.freePredictions[gameweek] = true;
       await user.save();
@@ -174,7 +175,6 @@ Use the stats from this season (25/26), recent form, and realistic predictions.
       score: aiPrediction.score,
       winChances: aiPrediction.winChances,
       bttsPct: aiPrediction.bttsPct,
-      overUnder25: aiPrediction.overUnder25,
       reasoning: aiPrediction.reasoning,
       recentForm: aiPrediction.recentForm
     });
