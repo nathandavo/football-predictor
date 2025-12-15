@@ -35,7 +35,7 @@ router.post(
       const session = event.data.object;
 
       const userId = session.metadata.userId;
-      const customerId = session.customer; // 👈 IMPORTANT
+      const customerId = session.customer; // 👈 Stripe customer ID
 
       console.log("💥 Premium activated for:", userId);
       console.log("💥 Stripe customer:", customerId);
@@ -43,7 +43,7 @@ router.post(
       const user = await User.findById(userId);
       if (user) {
         user.isPremium = true;
-        user.stripeCustomerId = customerId; // 👈 SAVE CUSTOMER ID
+        user.stripeCustomerId = customerId; // Save for portal & future use
         await user.save();
 
         console.log("✅ User upgraded & customer ID saved");
@@ -55,7 +55,7 @@ router.post(
 );
 
 // ---------------------------
-// CREATE CHECKOUT SESSION
+// CREATE CHECKOUT SESSION (SUBSCRIPTION)
 // ---------------------------
 router.post("/payment", auth, async (req, res) => {
   console.log("💥 /stripe/payment hit");
@@ -63,8 +63,7 @@ router.post("/payment", auth, async (req, res) => {
   try {
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
-      mode: "subscription",
-      customer_creation: "always",       // 👈 ENSURES CUSTOMER IS CREATED
+      mode: "subscription", // subscription mode
       line_items: [
         {
           price: process.env.STRIPE_PRICE_ID,
@@ -85,7 +84,7 @@ router.post("/payment", auth, async (req, res) => {
 });
 
 // ---------------------------
-// CREATE CUSTOMER PORTAL (CANCEL SUBSCRIPTION PAGE)
+// CUSTOMER PORTAL (CANCEL SUBSCRIPTION)
 // ---------------------------
 router.post("/portal", auth, async (req, res) => {
   try {
@@ -97,7 +96,7 @@ router.post("/portal", auth, async (req, res) => {
 
     const portalSession = await stripe.billingPortal.sessions.create({
       customer: user.stripeCustomerId,
-      return_url: `${process.env.APP_URL}/account`, // where Stripe returns user
+      return_url: `${process.env.APP_URL}/account`,
     });
 
     res.json({ url: portalSession.url });
