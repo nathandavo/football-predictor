@@ -3,7 +3,7 @@ const router = express.Router();
 const auth = require("../middleware/auth");
 const OpenAI = require("openai");
 const fetch = require("node-fetch");
-const User = require("../models/User"); // ✅ added to fetch user from DB
+const User = require("../models/User"); // ✅ fetch user from DB
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const FOOTBALL_API_KEY = process.env.FOOTBALL_API_KEY;
@@ -83,7 +83,7 @@ async function fetchUpcomingFixtures() {
 
 router.get("/", auth, async (req, res) => {
   try {
-    // ✅ Fetch user from DB to get actual isPremium value
+    // ✅ Fetch user from DB to get real isPremium value
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: "User not found" });
     if (!user.isPremium) return res.status(403).json({ error: "Premium only" });
@@ -128,17 +128,28 @@ Fixtures with stats: ${JSON.stringify(fixturesWithStats)}
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
-      temperature: 0.3, // low temp for deterministic output
+      temperature: 0.3,
       max_tokens: 600,
     });
 
     const raw = completion.choices?.[0]?.message?.content ?? "";
     let data;
     try {
-      data = JSON.parse(raw);
+      // ✅ Safe JSON parse: extract object even if AI adds extra text
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("No JSON found in AI output");
+      data = JSON.parse(jsonMatch[0]);
     } catch (err) {
       console.error("OpenAI JSON parse error:", raw, err);
-      return res.status(500).json({ error: "AI output parsing failed" });
+      // ✅ fallback: show 3 default picks so screen renders
+      data = {
+        gameweek,
+        picks: [
+          { market: "Over 2.5 Goals", match: "TBD vs TBD", selection: "Over 2.5", confidence: 0 },
+          { market: "Both Teams To Score", match: "TBD vs TBD", selection: "Yes", confidence: 0 },
+          { market: "Match Winner", match: "TBD vs TBD", selection: "TBD", confidence: 0 },
+        ],
+      };
     }
 
     res.json(data);
