@@ -3,6 +3,7 @@ const router = express.Router();
 const auth = require("../middleware/auth");
 const OpenAI = require("openai");
 const fetch = require("node-fetch");
+const User = require("../models/User"); // ✅ added to fetch user from DB
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const FOOTBALL_API_KEY = process.env.FOOTBALL_API_KEY;
@@ -82,7 +83,10 @@ async function fetchUpcomingFixtures() {
 
 router.get("/", auth, async (req, res) => {
   try {
-    if (!req.user?.isPremium) return res.status(403).json({ error: "Premium only" });
+    // ✅ Fetch user from DB to get actual isPremium value
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+    if (!user.isPremium) return res.status(403).json({ error: "Premium only" });
 
     const gameweek = getGameWeek();
     const fixtures = await fetchUpcomingFixtures();
