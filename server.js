@@ -8,7 +8,8 @@ const OpenAI = require("openai");
 const authRoutes = require("./routes/auth");
 const fixtureRoutes = require("./routes/fixtures");
 const predictionRoutes = require("./routes/prediction");
-const stripeRoutes = require("./routes/stripe"); // ✅ add stripe routes
+const stripeRoutes = require("./routes/stripe");
+const betOfWeekRoutes = require("./routes/betOfWeek"); // ✅ ADDED (only change)
 
 const app = express();
 app.use(cors());
@@ -30,7 +31,8 @@ app.get("/", (req, res) => res.send("⚽ Football Predictor API is running!"));
 app.use("/auth", authRoutes);
 app.use("/fixtures", fixtureRoutes);
 app.use("/predict", predictionRoutes);
-app.use("/stripe", stripeRoutes); // ✅ mount stripe routes
+app.use("/stripe", stripeRoutes);
+app.use("/bet-of-the-week", betOfWeekRoutes); // ✅ ADDED (only change)
 
 // CHAT endpoint (unchanged)
 app.post("/chat", async (req, res) => {
