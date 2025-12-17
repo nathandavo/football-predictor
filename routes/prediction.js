@@ -111,21 +111,23 @@ router.post('/free', auth, async (req, res) => {
     }
 
     const gameweek = getGameWeek();
-
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    /* ✅ HARD LIMIT: 1 FREE PREDICTION PER GW */
+    // ✅ FIX: Ensure freePredictions is a Map so new users can get prediction
     if (!user.isPremium) {
-      if (user.freePredictions?.get(gameweek)) {
-        return res.status(403).json({
-          error: 'Free prediction already used this week',
-        });
+      if (!(user.freePredictions instanceof Map)) {
+        user.freePredictions = new Map(Object.entries(user.freePredictions || {}));
+      }
+
+      if (user.freePredictions.get(gameweek)) {
+        return res.status(403).json({ error: 'Free prediction already used this week' });
       }
     }
 
     const stats = await fetchStats(homeTeam, awayTeam);
 
+    // ✅ OpenAI prompt unchanged
     const prompt = `
 Predict the football match between ${stats.homeStats.name} and ${stats.awayStats.name}.
 Use recent form and goals stats from the current season.
@@ -168,14 +170,13 @@ Return ONLY valid JSON:
       };
     }
 
-    /* ✅ MARK FREE PREDICTION AS USED */
+    // ✅ Mark free prediction used
     if (!user.isPremium) {
       user.freePredictions.set(gameweek, true);
       await user.save();
     }
 
     res.json(ai);
-
   } catch (err) {
     console.error('Prediction route error:', err);
     res.status(500).json({ error: 'Prediction failed' });
