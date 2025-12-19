@@ -129,15 +129,35 @@ router.post('/free', auth, async (req, res) => {
 
     // ✅ OpenAI prompt unchanged
     const prompt = `
-Predict the football match between ${stats.homeStats.name} and ${stats.awayStats.name}.
-Use recent form and goals stats from the current season.
+You are a professional football betting analyst.
+
+Match:
+${stats.homeStats.name} vs ${stats.awayStats.name}
+
+Stats context:
+- ${stats.homeStats.name} goals scored this season: ${stats.homeStats.goalsScored}
+- ${stats.homeStats.name} goals conceded this season: ${stats.homeStats.goalsConceded}
+- Recent form (${stats.homeStats.name}): ${stats.homeStats.recentForm.join(" ")}
+
+- ${stats.awayStats.name} goals scored this season: ${stats.awayStats.goalsScored}
+- ${stats.awayStats.name} goals conceded this season: ${stats.awayStats.goalsConceded}
+- Recent form (${stats.awayStats.name}): ${stats.awayStats.recentForm.join(" ")}
+
+TASK:
+- Predict the most likely score
+- Estimate win probabilities
+- Estimate BTTS probability
+- Provide a **specific, non-generic explanation**
+- Reference concrete factors (form trend, defensive weakness, goal patterns)
+- Avoid phrases like "home advantage" unless supported by stats
+- Keep reasoning under 3 sentences
 
 Return ONLY valid JSON:
 {
   "score": "2-1",
   "winChances": { "home": 45, "draw": 25, "away": 30 },
   "bttsPct": 62,
-  "reasoning": "Short reasoning",
+  "reasoning": "Concise analytical explanation",
   "recentForm": {
     "home": ["W","D","L","W","W"],
     "away": ["L","D","W","L","D"]
@@ -184,3 +204,4 @@ Return ONLY valid JSON:
 });
 
 module.exports = router;
+
